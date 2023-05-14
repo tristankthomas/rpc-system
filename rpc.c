@@ -7,14 +7,21 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <sys/socket.h>
 
 
 struct rpc_server {
     int sockfd;
     int port_num;
     struct sockaddr_in6 client_addr;
+    // will have hash-table later (one handler for now)
+    rpc_handler procedure;
 
 };
+
+static int send_message_size(int size, int sockfd);
+static int recv_message_size(int sockfd);
+
 
 rpc_server *rpc_init_server(int port) {
 
@@ -22,7 +29,7 @@ rpc_server *rpc_init_server(int port) {
     struct addrinfo hints, *res, *p;
     struct sockaddr_in6 client_addr;
     char port_str[6];
-    char buffer[256], ip[INET6_ADDRSTRLEN];
+    char ip[INET6_ADDRSTRLEN];
     socklen_t client_addr_size;
 
     struct rpc_server *server = malloc(sizeof(struct rpc_server));
@@ -85,6 +92,7 @@ rpc_server *rpc_init_server(int port) {
     // Print ipv4 peer information (can be removed)
     getpeername(connectfd, (struct sockaddr *) &client_addr, &client_addr_size);
     inet_ntop(client_addr.sin6_family, &client_addr.sin6_addr, ip, INET6_ADDRSTRLEN);
+    // client port
     port2 = ntohs(client_addr.sin6_port);
     printf("new connection from %s:%d on socket %d\n", ip, port2, connectfd);
 
@@ -95,14 +103,72 @@ rpc_server *rpc_init_server(int port) {
 
     freeaddrinfo(res);
 
+
+
     return server;
 }
 
 int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
-    return -1;
+    printf("SERVER: registering function %s \n", name);
+    srv->procedure = handler;
+    char buffer[256];
+
+    int message_size = recv_message_size(srv->sockfd);
+
+    int bytes_received = 0;
+    printf("SERVER: receiving message\n");
+    while (1) {
+        int n = recv(srv->sockfd, buffer + bytes_received, message_size - bytes_received, 0);
+
+        if (n < 0) {
+            perror("recv");
+            exit(EXIT_FAILURE);
+        } else if (n == 0) {
+            break;
+        } else {
+            bytes_received += n;
+            if (bytes_received == message_size) {
+                break;
+            }
+        }
+
+    }
+    buffer[bytes_received] = '\0';
+    printf("Here is the message: %s\n", buffer);
+
+    return 1;
+    //return -1;
 }
 
 void rpc_serve_all(rpc_server *srv) {
+    char buffer[255];
+
+    // Read characters from the connection, then process
+//    int bytes_received = 0;
+//
+//
+//    while (1) {
+//        int n = recv(srv->sockfd, buffer + bytes_received, sizeof(buffer) - bytes_received - 1, 0);
+//        if (n < 0) {
+//            perror("recv");
+//            exit(EXIT_FAILURE);
+//            // Error handling
+//        } else if (n == 0) {
+//            // no more data to receive
+//            break;
+//        } else {
+//            bytes_received += n;
+//            // Process received data
+//        }
+//    }
+//
+//    // Null-terminate string
+//    buffer[bytes_received] = '\0';
+
+    // Write message back
+
+    printf("SERVER: calling function %s \n", buffer);
+
 
 }
 
@@ -114,7 +180,8 @@ struct rpc_client {
 };
 
 struct rpc_handle {
-    /* Add variable(s) for handle */
+    char *name;
+    int id;
 };
 
 rpc_client *rpc_init_client(char *addr, int port) {
@@ -122,6 +189,7 @@ rpc_client *rpc_init_client(char *addr, int port) {
     struct addrinfo hints, *servinfo, *p;
     char port_str[6];
     struct rpc_client *client = malloc(sizeof(struct rpc_client));
+
     assert(client);
     client->server_addr = strdup(addr);
     assert(client->server_addr);
@@ -161,29 +229,89 @@ rpc_client *rpc_init_client(char *addr, int port) {
     freeaddrinfo(servinfo);
 
 
-    // Read message from stdin
-//    printf("Please enter the message: ");
-//    if (fgets(buffer, 255, stdin) == NULL) {
-//        exit(EXIT_SUCCESS);
-//    }
-//    // Remove \n that was read by fgets
-//    buffer[strlen(buffer) - 1] = 0;
-//
-//    // Send message to server
-//    n = write(sockfd, buffer, strlen(buffer));
-//    if (n < 0) {
-//        perror("socket");
-//        exit(EXIT_FAILURE);
-//    }
-
     return client;
 }
 
 rpc_handle *rpc_find(rpc_client *cl, char *name) {
-    return NULL;
+    printf("CLIENT: finding function %s \n", name);
+    char buffer[256];
+    int n;
+    rpc_handle *handle = malloc(sizeof handle);
+    assert(handle);
+    handle->name = strdup(name);
+    assert(handle->name);
+
+    // Read message from stdin
+    printf("Please enter the message: ");
+    if (fgets(buffer, 255, stdin) == NULL) {
+        exit(EXIT_SUCCESS);
+    }
+    // Remove \n that was read by fgets
+    buffer[strlen(buffer) - 1] = 0;
+
+    int size = strlen(buffer);
+    send_message_size(size, cl->sockfd);
+
+    printf("CLIENT: sending message, %s\n", buffer);
+    // Send message to server
+    n = send(cl->sockfd, buffer, strlen(buffer), 0);
+    if (n < 0) {
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
+
+    return handle;
+    //return NULL;
+}
+
+
+static int send_message_size(int size, int sockfd) {
+    int size_n = htonl(size);
+    printf("sending size of message\n");
+    int n = send(sockfd, &size_n, sizeof(size_n), 0);
+    if (n < 0) {
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
+
+    return n;
+}
+
+static int recv_message_size(int sockfd) {
+    int message_size = 0;
+    int bytes_received = 0;
+    printf("receiving message size\n");
+    size_t int_size = sizeof(int);
+    while (1) {
+        int n = recv(sockfd, &message_size + bytes_received, int_size - bytes_received, 0);
+
+        if (n < 0) {
+            perror("recv");
+            exit(EXIT_FAILURE);
+        } else if (n == 0) {
+            break;
+        } else {
+            bytes_received += n;
+            if (bytes_received == int_size) {
+                break;
+            }
+        }
+
+    }
+
+    message_size = ntohl(message_size);
+    printf("message size is %d\n", message_size);
+
+    return message_size;
 }
 
 rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
+    printf("CLIENT: calling function %s \n", h->name);
+    int n = send(cl->sockfd, h->name, strlen(h->name), 0);
+    if (n < 0) {
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
     return NULL;
 }
 
