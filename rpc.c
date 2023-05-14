@@ -21,6 +21,8 @@ struct rpc_server {
 
 static int send_message_size(int size, int sockfd);
 static int recv_message_size(int sockfd);
+static int send_message(char *message, int sockfd);
+static int recv_message(int size, char *buffer, int sockfd);
 
 
 rpc_server *rpc_init_server(int port) {
@@ -111,30 +113,14 @@ rpc_server *rpc_init_server(int port) {
 int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
     printf("SERVER: registering function %s \n", name);
     srv->procedure = handler;
-    char buffer[256];
 
     int message_size = recv_message_size(srv->sockfd);
+    printf("message size is %d\n", message_size);
 
-    int bytes_received = 0;
-    printf("SERVER: receiving message\n");
-    while (1) {
-        int n = recv(srv->sockfd, buffer + bytes_received, message_size - bytes_received, 0);
+    char message[256];
+    recv_message(message_size, message, srv->sockfd);
+    printf("Here is the message: %s\n", message);
 
-        if (n < 0) {
-            perror("recv");
-            exit(EXIT_FAILURE);
-        } else if (n == 0) {
-            break;
-        } else {
-            bytes_received += n;
-            if (bytes_received == message_size) {
-                break;
-            }
-        }
-
-    }
-    buffer[bytes_received] = '\0';
-    printf("Here is the message: %s\n", buffer);
 
     return 1;
     //return -1;
@@ -143,31 +129,13 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
 void rpc_serve_all(rpc_server *srv) {
     char buffer[255];
 
-    // Read characters from the connection, then process
-//    int bytes_received = 0;
-//
-//
-//    while (1) {
-//        int n = recv(srv->sockfd, buffer + bytes_received, sizeof(buffer) - bytes_received - 1, 0);
-//        if (n < 0) {
-//            perror("recv");
-//            exit(EXIT_FAILURE);
-//            // Error handling
-//        } else if (n == 0) {
-//            // no more data to receive
-//            break;
-//        } else {
-//            bytes_received += n;
-//            // Process received data
-//        }
-//    }
-//
-//    // Null-terminate string
-//    buffer[bytes_received] = '\0';
+    // reads function name size
+    int size = recv_message_size(srv->sockfd);
+    printf("function name size is %d\n", size);
 
-    // Write message back
-
-    printf("SERVER: calling function %s \n", buffer);
+    // reads function name
+    recv_message(size, buffer, srv->sockfd);
+    printf("Here is the function name: %s\n", buffer);
 
 
 }
@@ -250,18 +218,52 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
     buffer[strlen(buffer) - 1] = 0;
 
     int size = strlen(buffer);
+    // sends size of message
     send_message_size(size, cl->sockfd);
 
-    printf("CLIENT: sending message, %s\n", buffer);
-    // Send message to server
-    n = send(cl->sockfd, buffer, strlen(buffer), 0);
+    // sends message to server
+    send_message(buffer, cl->sockfd);
+
+    return handle;
+    //return NULL;
+}
+
+static int send_message(char *message, int sockfd) {
+    printf("sending message, %s\n", message);
+    // Send message
+    int n = send(sockfd, message, strlen(message), 0);
     if (n < 0) {
         perror("socket");
         exit(EXIT_FAILURE);
     }
 
-    return handle;
-    //return NULL;
+    return n;
+}
+
+static int recv_message(int size, char *buffer, int sockfd) {
+
+    int bytes_received = 0;
+    printf("receiving message\n");
+    while (1) {
+        int n = recv(sockfd, buffer + bytes_received, size - bytes_received, 0);
+
+        if (n < 0) {
+            perror("recv");
+            exit(EXIT_FAILURE);
+        } else if (n == 0) {
+            break;
+        } else {
+            bytes_received += n;
+            if (bytes_received == size) {
+                break;
+            }
+        }
+
+    }
+    buffer[bytes_received] = '\0';
+
+    return bytes_received;
+
 }
 
 
@@ -300,18 +302,18 @@ static int recv_message_size(int sockfd) {
     }
 
     message_size = ntohl(message_size);
-    printf("message size is %d\n", message_size);
 
     return message_size;
 }
 
 rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
     printf("CLIENT: calling function %s \n", h->name);
-    int n = send(cl->sockfd, h->name, strlen(h->name), 0);
-    if (n < 0) {
-        perror("socket");
-        exit(EXIT_FAILURE);
-    }
+    // send function name size to server
+    send_message_size(strlen(h->name), cl->sockfd);
+
+    // send function name to server
+    send_message(h->name, cl->sockfd);
+
     return NULL;
 }
 
