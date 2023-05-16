@@ -7,7 +7,7 @@ rpc_data *add2_i8(rpc_data *);
 
 int main(int argc, char *argv[]) {
     rpc_server *state;
-
+    printf("here\n");
     state = rpc_init_server(3000);
     if (state == NULL) {
         fprintf(stderr, "Failed to init\n");
