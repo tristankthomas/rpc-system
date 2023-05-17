@@ -188,16 +188,24 @@ void rpc_serve_all(rpc_server *srv) {
     recv_data(srv->sockfd, &data1);
     printf("stored data is %d\n", *((int*)data1.data2));
 
+    result1 = srv->procedure(&data1);
+    printf("result1 is %d\n", result1->data1);
+
+    send_data(srv->sockfd, result1);
+
+
     recv_data(srv->sockfd, &data2);
     printf("stored data is %d\n", *((int*)data2.data2));
 
-    result1 = srv->procedure(&data1);
-    printf("result1 is %d\n", result1->data1);
+
     result2 = srv->procedure(&data2);
     printf("result2 is %d\n", result2->data1);
-//    // reads data_2_length
-//    recv_size(srv->sockfd);
-//    printf("received %zu\n", data2.data2_len);
+
+    send_data(srv->sockfd, result2);
+
+
+
+
 
 
 
@@ -285,6 +293,8 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
 
 rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
     printf("CLIENT: calling function %s \n", h->name);
+    rpc_data *result = malloc(sizeof(result));
+    assert(result);
     // send function name size to server
 //    send_size(strlen(h->name), cl->sockfd);
 //
@@ -295,7 +305,10 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
     printf("CLIENT: sending data\n");
     send_data(cl->sockfd, payload);
 
-    return NULL;
+    recv_data(cl->sockfd, result);
+
+
+    return result;
 }
 
 
@@ -321,8 +334,11 @@ static int send_data(int sockfd, rpc_data *data) {
     send_size(size, sockfd);
 
     // send data_2
-    printf("sending data_2\n");
-    send_void(sockfd, size, data_2);
+    if (size > 0) {
+        printf("sending data_2\n");
+        send_void(sockfd, size, data_2);
+    }
+
 
     return 0;
 
@@ -454,11 +470,16 @@ static int recv_data(int sockfd, rpc_data *buffer) {
     printf("received data2_len: %zu\n", buffer->data2_len);
 
     // receiving data_2
-    void *data_2 = malloc(data_2_len);
-    size_t num = recv_void(sockfd, data_2_len, data_2);
-    printf("received data_2 of size %zu\n", num);
-    printf("data is %d\n",  *((int*)data_2));
-    buffer->data2 = data_2;
+    if (data_2_len > 0) {
+        buffer->data2 = malloc(data_2_len);
+        size_t num = recv_void(sockfd, data_2_len, buffer->data2);
+        printf("received data_2 of size %zu\n", num);
+        printf("data is %d\n",  *((int*)buffer->data2));
+    } else {
+        buffer->data2 = NULL;
+        printf("no bytes read\n");
+    }
+
 
 
     return 0;

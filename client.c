@@ -27,18 +27,18 @@ int main(int argc, char *argv[]) {
 
         /* Call and receive response */
         rpc_data *response_data = rpc_call(state, handle_add2, &request_data);
-//        if (response_data == NULL) {
-//            fprintf(stderr, "Function call of add2 failed\n");
-//            exit_code = 1;
-//            goto cleanup;
-//        }
+        if (response_data == NULL) {
+            fprintf(stderr, "Function call of add2 failed\n");
+            exit_code = 1;
+            goto cleanup;
+        }
 
         /* Interpret response */
-//        assert(response_data->data2_len == 0);
-//        assert(response_data->data2 == NULL);
-//        printf("Result of adding %d and %d: %d\n", left_operand, right_operand,
-//               response_data->data1);
-//        rpc_data_free(response_data);
+        assert(response_data->data2_len == 0);
+        assert(response_data->data2 == NULL);
+        printf("Result of adding %d and %d: %d\n", left_operand, right_operand,
+               response_data->data1);
+        rpc_data_free(response_data);
     }
 
 cleanup:
