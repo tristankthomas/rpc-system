@@ -8,6 +8,32 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <endian.h>
+
+
+#if defined(htobe64) && !defined(htonll)
+    #define htonll(x) htobe64(x)
+#endif
+
+#if defined(be64toh) && !defined(ntohll)
+    #define ntohll(x) be64toh(x)
+#endif
+
+#if defined(__SIZEOF_SIZE_T__)
+    #if __SIZEOF_SIZE_T__ == 4
+        typedef uint32_t uintsize_t;
+        #define htonsize(x) htonl(x)
+        #define ntohsize(x) ntohl(x)
+    #elif __SIZEOF_SIZE_T__ == 8
+        typedef uint64_t uintsize_t;
+        #define htonsize(x) htonll(x)
+        #define ntohsize(x) ntohll(x)
+    #else
+        #error "Unsupported size for size_t"
+    #endif
+#else
+    #error "Cannot determine size of size_t"
+#endif
 
 
 struct rpc_server {
@@ -19,10 +45,10 @@ struct rpc_server {
 
 };
 
-static int send_message_size(int size, int sockfd);
+static int send_message_size(size_t size, int sockfd);
 static int recv_message_size(int sockfd);
 static int send_message(char *message, int sockfd);
-static int recv_message(int size, char *buffer, int sockfd);
+static int recv_message(size_t size, char *buffer, int sockfd);
 static int send_data(int sockfd, rpc_data *data);
 static int receive_data(int sockfd, rpc_data *buffer);
 
@@ -116,8 +142,8 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
     printf("SERVER: registering function %s \n", name);
     srv->procedure = handler;
 
-    int message_size = recv_message_size(srv->sockfd);
-    printf("message size is %d\n", message_size);
+    uintsize_t message_size = recv_message_size(srv->sockfd);
+    printf("message size is %zu\n", message_size);
 
     char message[256];
     recv_message(message_size, message, srv->sockfd);
@@ -146,6 +172,10 @@ void rpc_serve_all(rpc_server *srv) {
 
     receive_data(srv->sockfd, &data2);
     printf("received %d\n", data2.data1);
+
+//    // reads data_2_length
+//    recv_message_size(srv->sockfd);
+//    printf("received %zu\n", data2.data2_len);
 
 
 
@@ -213,7 +243,7 @@ rpc_client *rpc_init_client(char *addr, int port) {
 
 rpc_handle *rpc_find(rpc_client *cl, char *name) {
     printf("CLIENT: finding function %s \n", name);
-    char buffer[256];
+    char word[] = "hello";
     int n;
     rpc_handle *handle = malloc(sizeof handle);
     assert(handle);
@@ -221,19 +251,19 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
     assert(handle->name);
 
     // Read message from stdin
-    printf("Please enter the message: ");
-    if (fgets(buffer, 255, stdin) == NULL) {
-        exit(EXIT_SUCCESS);
-    }
+//    printf("Please enter the message: ");
+//    if (fgets(buffer, 255, stdin) == NULL) {
+//        exit(EXIT_SUCCESS);
+//    }
     // Remove \n that was read by fgets
-    buffer[strlen(buffer) - 1] = 0;
+//    buffer[strlen(buffer) - 1] = 0;
 
-    int size = strlen(buffer);
+    size_t size = strlen(word);
     // sends size of message
     send_message_size(size, cl->sockfd);
 
     // sends message to server
-    send_message(buffer, cl->sockfd);
+    send_message(word, cl->sockfd);
 
     return handle;
     //return NULL;
@@ -251,7 +281,7 @@ static int send_message(char *message, int sockfd) {
     return n;
 }
 
-static int recv_message(int size, char *buffer, int sockfd) {
+static int recv_message(size_t size, char *buffer, int sockfd) {
 
     int bytes_received = 0;
     printf("receiving message\n");
@@ -278,8 +308,15 @@ static int recv_message(int size, char *buffer, int sockfd) {
 }
 
 
-static int send_message_size(int size, int sockfd) {
-    int size_n = htonl(size);
+static int send_message_size(size_t size, int sockfd) {
+
+
+    uintsize_t size_n = htonsize((uintsize_t) size);
+    uint64_t num = htobe64(5);
+    uint32_t num2 = htonl(100);
+    uint64_t res1 = be64toh(num);
+    uint32_t res2 = ntohl(num2);
+
     printf("sending size of message\n");
     int n = send(sockfd, &size_n, sizeof(size_n), 0);
     if (n < 0) {
@@ -291,12 +328,15 @@ static int send_message_size(int size, int sockfd) {
 }
 
 static int recv_message_size(int sockfd) {
-    int message_size = 0;
-    int bytes_received = 0;
+
+
+    uintsize_t message_size = 0;
+
+    size_t bytes_received = 0;
     printf("receiving message size\n");
-    size_t int_size = sizeof(int);
+    size_t s_size = sizeof(uintsize_t);
     while (1) {
-        int n = recv(sockfd, &message_size + bytes_received, int_size - bytes_received, 0);
+        ssize_t n = recv(sockfd, &message_size + bytes_received, s_size - bytes_received, 0);
 
         if (n < 0) {
             perror("recv");
@@ -304,15 +344,15 @@ static int recv_message_size(int sockfd) {
         } else if (n == 0) {
             break;
         } else {
-            bytes_received += n;
-            if (bytes_received == int_size) {
+            bytes_received += (size_t) n;
+            if (bytes_received == s_size) {
                 break;
             }
         }
 
     }
 
-    message_size = ntohl(message_size);
+    message_size = ntohsize(message_size);
 
     return message_size;
 }
@@ -345,6 +385,11 @@ static int send_data(int sockfd, rpc_data *data) {
         perror("socket");
         exit(EXIT_FAILURE);
     }
+
+    // send data_2_length
+//    printf("sending data_2_length\n");
+//
+//    send_message_size(length, sockfd);
 
     return 0;
 
