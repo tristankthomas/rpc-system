@@ -174,6 +174,8 @@ void rpc_serve_all(rpc_server *srv) {
     char buffer[255];
     rpc_data data1 = {.data1 = 1, .data2_len = 0, .data2 = NULL};
     rpc_data data2 = {.data1 = 1, .data2_len = 0, .data2 = NULL};
+    rpc_data *result1;
+    rpc_data *result2;
 
     // reads function name size
 //    int size = recv_size(srv->sockfd);
@@ -184,10 +186,15 @@ void rpc_serve_all(rpc_server *srv) {
 //    printf("Here is the function name: %s\n", buffer);
 
     recv_data(srv->sockfd, &data1);
-
+    printf("stored data is %d\n", *((int*)data1.data2));
 
     recv_data(srv->sockfd, &data2);
+    printf("stored data is %d\n", *((int*)data2.data2));
 
+    result1 = srv->procedure(&data1);
+    printf("result1 is %d\n", result1->data1);
+    result2 = srv->procedure(&data2);
+    printf("result2 is %d\n", result2->data1);
 //    // reads data_2_length
 //    recv_size(srv->sockfd);
 //    printf("received %zu\n", data2.data2_len);
@@ -451,6 +458,7 @@ static int recv_data(int sockfd, rpc_data *buffer) {
     size_t num = recv_void(sockfd, data_2_len, data_2);
     printf("received data_2 of size %zu\n", num);
     printf("data is %d\n",  *((int*)data_2));
+    buffer->data2 = data_2;
 
 
     return 0;
