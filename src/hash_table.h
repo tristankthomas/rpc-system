@@ -10,6 +10,7 @@
 typedef struct node node_t;
 typedef struct hash_table hash_table_t;
 
+hash_table_t *create_empty_table();
 void insert_data(hash_table_t *table, char *key, void *data);
 void *get_data(hash_table_t *table, char *key);
 void free_table(hash_table_t *table);

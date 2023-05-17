@@ -43,18 +43,13 @@
 
 struct rpc_server {
     int sockfd;
-    int port_num;
-    struct sockaddr_in6 client_addr;
     // will have hash-table later (one handler for now)
-    rpc_handler procedure;
+    hash_table_t *procedures;
 
 };
 
 struct rpc_client {
     int sockfd;
-    int port_num;
-    char *server_addr;
-
 };
 
 struct rpc_handle {
@@ -82,7 +77,7 @@ rpc_server *rpc_init_server(int port) {
     char ip[INET6_ADDRSTRLEN];
     socklen_t client_addr_size;
 
-    struct rpc_server *server = malloc(sizeof(struct rpc_server));
+    struct rpc_server *server = malloc(sizeof(*server));
     assert(server);
 
     // convert port to string
@@ -147,12 +142,11 @@ rpc_server *rpc_init_server(int port) {
     printf("new connection from %s:%d on socket %d\n", ip, port2, connectfd);
 
     // assign to server
-    server->client_addr = client_addr;
-    server->port_num = port;
     server->sockfd = connectfd;
 
     freeaddrinfo(res);
 
+    server->procedures = create_empty_table();
 
 
     return server;
@@ -160,7 +154,7 @@ rpc_server *rpc_init_server(int port) {
 
 int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
     printf("SERVER: registering function %s \n", name);
-    srv->procedure = handler;
+    insert_data(srv->procedures, name, (void *) handler);
 
     return 1;
 
@@ -168,8 +162,11 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
 
 void rpc_serve_all(rpc_server *srv) {
     char name[255];
-    rpc_data data1 = {.data1 = 1, .data2_len = 0, .data2 = NULL};
-    rpc_data data2 = {.data1 = 1, .data2_len = 0, .data2 = NULL};
+    rpc_data *data1 = malloc(sizeof(*data1));
+    assert(data1);
+    rpc_data *data2 = malloc(sizeof(*data2));
+    assert(data2);
+
     rpc_data *result1;
     rpc_data *result2;
 
@@ -183,23 +180,31 @@ void rpc_serve_all(rpc_server *srv) {
 
 
 
-    recv_data(srv->sockfd, &data1);
-    printf("stored data is %d\n", *((int*)data1.data2));
+    recv_data(srv->sockfd, data1);
+//    if (data1.data2 != NULL) printf("stored data is %d\n", *((int*)data1.data2));
 
-    result1 = srv->procedure(&data1);
+    result1 = ((rpc_handler) get_data(srv->procedures, name))(data1);
+
+    rpc_data_free(data1);
     printf("result1 is %d\n", result1->data1);
 
     send_data(srv->sockfd, result1);
 
-
-    recv_data(srv->sockfd, &data2);
-    printf("stored data is %d\n", *((int*)data2.data2));
+    rpc_data_free(result1);
 
 
-    result2 = srv->procedure(&data2);
+    recv_data(srv->sockfd, data2);
+ //   if (data2.data2 != NULL) printf("stored data is %d\n", *((int*)data2.data2));
+
+
+    result2 = ((rpc_handler) get_data(srv->procedures, name))(data2);
+
+    rpc_data_free(data2);
     printf("result2 is %d\n", result2->data1);
 
     send_data(srv->sockfd, result2);
+
+    rpc_data_free(result2);
 
 
 
@@ -214,11 +219,9 @@ rpc_client *rpc_init_client(char *addr, int port) {
     int connectfd, s;
     struct addrinfo hints, *servinfo, *p;
     char port_str[6];
-    struct rpc_client *client = malloc(sizeof(struct rpc_client));
+    struct rpc_client *client = malloc(sizeof(*client));
 
     assert(client);
-    client->server_addr = strdup(addr);
-    assert(client->server_addr);
 
 
     memset(&hints, 0, sizeof hints);
@@ -249,7 +252,6 @@ rpc_client *rpc_init_client(char *addr, int port) {
         return NULL;
     }
     // assign to client
-    client->port_num = port;
     client->sockfd = connectfd;
 
     freeaddrinfo(servinfo);
@@ -260,7 +262,7 @@ rpc_client *rpc_init_client(char *addr, int port) {
 
 rpc_handle *rpc_find(rpc_client *cl, char *name) {
     //printf("CLIENT: finding function %s \n", name);
-    rpc_handle *handle = malloc(sizeof handle);
+    rpc_handle *handle = malloc(sizeof(*handle));
     assert(handle);
     handle->id = 0;
 
@@ -277,7 +279,7 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
 
 rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
     //printf("CLIENT: calling function %s \n", h->name);
-    rpc_data *result = malloc(sizeof(result));
+    rpc_data *result = malloc(sizeof(*result));
     assert(result);
     // send function name size to server
 //    send_size(strlen(h->name), cl->sockfd);
@@ -456,9 +458,10 @@ static size_t recv_data(int sockfd, rpc_data *buffer) {
     // receiving data_2
     if (data_2_len > 0) {
         buffer->data2 = malloc(data_2_len);
+        assert(buffer->data2);
         size_t num = recv_void(sockfd, data_2_len, buffer->data2);
         printf("received data_2 of size %zu\n", num);
-        printf("data is %d\n",  *((int*)buffer->data2));
+//        if (buffer->data2 != NULL) printf("data is %d\n",  *((int *) buffer->data2));
     } else {
         buffer->data2 = NULL;
         printf("no bytes read\n");
@@ -518,7 +521,7 @@ static size_t recv_int(int sockfd, int *data) {
 
 
 void rpc_close_client(rpc_client *cl) {
-
+    free(cl);
 }
 
 void rpc_data_free(rpc_data *data) {

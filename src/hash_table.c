@@ -5,7 +5,6 @@
  */
 
 #include "hash_table.h"
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -24,6 +23,7 @@ struct node {
 
 struct hash_table {
     node_t* buckets[TABLE_SIZE];
+    int num_items;
 };
 
 static uint32_t hash_djb2(char* str) {
@@ -35,8 +35,15 @@ static uint32_t hash_djb2(char* str) {
     return hash;
 }
 
+hash_table_t *create_empty_table() {
+    hash_table_t *table = malloc(sizeof(table));
+    assert(table);
+
+    return table;
+}
+
 static node_t *create_node(char *key, void *data) {
-    node_t *new_node = malloc(sizeof(new_node));
+    node_t *new_node = malloc(sizeof(*new_node));
     assert(new_node);
     new_node->key = strdup(key);
     assert(new_node->key);
