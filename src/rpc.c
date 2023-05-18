@@ -43,6 +43,7 @@
 
 struct rpc_server {
     int sockfd;
+    int listenfd;
     // will have hash-table later (one handler for now)
     hash_table_t *procedures;
 
@@ -58,24 +59,24 @@ struct rpc_handle {
 
 static size_t send_size(size_t size, int sockfd);
 static size_t recv_size(int sockfd);
-static size_t send_message(char *message, int sockfd);
-static size_t recv_message(size_t size, char *buffer, int sockfd);
+static size_t send_string(char *message, int sockfd);
+static size_t recv_string(size_t size, char *buffer, int sockfd);
 static size_t send_data(int sockfd, rpc_data *data);
 static size_t recv_data(int sockfd, rpc_data *buffer);
 static size_t recv_int(int sockfd, int *data);
 static size_t send_int(int sockfd, int data);
 static size_t send_void(int sockfd, size_t size, void *data);
 static size_t recv_void(int sockfd, size_t size, void *data);
+static uint32_t hash_djb2(char* str);
+
 
 
 rpc_server *rpc_init_server(int port) {
 
-    int enable = 1, s, connectfd, listenfd, port2;
+    int enable = 1, s, listenfd;
     struct addrinfo hints, *res, *p;
-    struct sockaddr_in6 client_addr;
+
     char port_str[6];
-    char ip[INET6_ADDRSTRLEN];
-    socklen_t client_addr_size;
 
     struct rpc_server *server = malloc(sizeof(*server));
     assert(server);
@@ -125,24 +126,9 @@ rpc_server *rpc_init_server(int port) {
         exit(EXIT_FAILURE);
     }
 
-    client_addr_size = sizeof client_addr;
-
-    // accept connection from client (takes from listen queue)
-    connectfd = accept(listenfd, (struct sockaddr *) &client_addr, &client_addr_size);
-    if (connectfd < 0) {
-        perror("accept");
-        return NULL;
-    }
-
-    // Print ipv4 peer information (can be removed)
-    getpeername(connectfd, (struct sockaddr *) &client_addr, &client_addr_size);
-    inet_ntop(client_addr.sin6_family, &client_addr.sin6_addr, ip, INET6_ADDRSTRLEN);
-    // client port
-    port2 = ntohs(client_addr.sin6_port);
-    printf("new connection from %s:%d on socket %d\n", ip, port2, connectfd);
 
     // assign to server
-    server->sockfd = connectfd;
+    server->listenfd = listenfd;
 
     freeaddrinfo(res);
 
@@ -153,15 +139,39 @@ rpc_server *rpc_init_server(int port) {
 }
 
 int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
-    printf("SERVER: registering function %s \n", name);
-    insert_data(srv->procedures, name, (void *) handler);
 
+    insert_data(srv->procedures, name, (void *) handler, (hash_func) hash_djb2);
+    printf("%s function registered\n", name);
     return 1;
 
 }
 
 void rpc_serve_all(rpc_server *srv) {
     char name[255];
+
+    // make connection
+    struct sockaddr_in6 client_addr;
+    socklen_t client_addr_size = sizeof(client_addr);
+    char ip[INET6_ADDRSTRLEN];
+    int port;
+    // accept connection from client (takes from listen queue)
+    int connectfd = accept(srv->listenfd, (struct sockaddr *) &client_addr, &client_addr_size);
+    if (connectfd < 0) {
+        perror("accept");
+        return;
+    }
+    srv->sockfd = connectfd;
+
+    // Print ipv4 peer information (can be removed)
+    getpeername(connectfd, (struct sockaddr *) &client_addr, &client_addr_size);
+    inet_ntop(client_addr.sin6_family, &client_addr.sin6_addr, ip, INET6_ADDRSTRLEN);
+    // client port
+    port = ntohs(client_addr.sin6_port);
+    printf("new connection from %s:%d on socket %d\n", ip, port, connectfd);
+
+
+
+
     rpc_data *data1 = malloc(sizeof(*data1));
     assert(data1);
     rpc_data *data2 = malloc(sizeof(*data2));
@@ -175,15 +185,16 @@ void rpc_serve_all(rpc_server *srv) {
     printf("function name size is %d\n", size);
 
     // reads function name
-    recv_message(size, name, srv->sockfd);
+    recv_string(size, name, srv->sockfd);
     printf("Here is the function name: %s\n", name);
+    rpc_handler handler = (rpc_handler) get_data(srv->procedures, name, (hash_func) hash_djb2, (compare_func) strcmp);
 
 
 
     recv_data(srv->sockfd, data1);
 //    if (data1.data2 != NULL) printf("stored data is %d\n", *((int*)data1.data2));
 
-    result1 = ((rpc_handler) get_data(srv->procedures, name))(data1);
+    result1 = ((rpc_handler) get_data(srv->procedures, name, (hash_func) hash_djb2, (compare_func) strcmp))(data1);
 
     rpc_data_free(data1);
     printf("result1 is %d\n", result1->data1);
@@ -197,7 +208,7 @@ void rpc_serve_all(rpc_server *srv) {
  //   if (data2.data2 != NULL) printf("stored data is %d\n", *((int*)data2.data2));
 
 
-    result2 = ((rpc_handler) get_data(srv->procedures, name))(data2);
+    result2 = ((rpc_handler) get_data(srv->procedures, name, (hash_func)hash_djb2, (compare_func) strcmp))(data2);
 
     rpc_data_free(data2);
     printf("result2 is %d\n", result2->data1);
@@ -270,7 +281,7 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
     send_size(strlen(name), cl->sockfd);
 
     // send function name to server
-    send_message(name, cl->sockfd);
+    send_string(name, cl->sockfd);
 
     return handle;
     //return NULL;
@@ -285,7 +296,7 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
 //    send_size(strlen(h->name), cl->sockfd);
 //
 //    // send function name to server
-//    send_message(h->name, cl->sockfd);
+//    send_string(h->name, cl->sockfd);
 
     // send rpc_data to server
     printf("CLIENT: sending data\n");
@@ -342,7 +353,7 @@ static size_t send_void(int sockfd, size_t size, void *data) {
 
 }
 
-static size_t send_message(char *message, int sockfd) {
+static size_t send_string(char *message, int sockfd) {
 
     // Send message
     int n = send(sockfd, message, strlen(message), 0);
@@ -383,7 +394,7 @@ static size_t send_int(int sockfd, int data) {
 
 
 // receiving functios
-static size_t recv_message(size_t size, char *buffer, int sockfd) {
+static size_t recv_string(size_t size, char *buffer, int sockfd) {
 
     int bytes_received = 0;
     printf("receiving message\n");
@@ -518,6 +529,16 @@ static size_t recv_int(int sockfd, int *data) {
     return bytes_received;
 }
 
+
+// hash functions
+static uint32_t hash_djb2(char* str) {
+    uint32_t hash = 5381;
+    int c;
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c;
+    }
+    return hash;
+}
 
 
 void rpc_close_client(rpc_client *cl) {

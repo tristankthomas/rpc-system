@@ -7,12 +7,15 @@
 #ifndef HASH_TABLE_H
 #define HASH_TABLE_H
 
-typedef struct node node_t;
+#include <stdint.h>
+
 typedef struct hash_table hash_table_t;
+typedef uint32_t (*hash_func)(void *);
+typedef int (*compare_func)(void *, void *);
 
 hash_table_t *create_empty_table();
-void insert_data(hash_table_t *table, char *key, void *data);
-void *get_data(hash_table_t *table, char *key);
+void insert_data(hash_table_t *table, void *kvoidey, void *data, hash_func hash);
+void *get_data(hash_table_t *table, void *key, hash_func hash, compare_func cmp);
 void free_table(hash_table_t *table);
 
 #endif

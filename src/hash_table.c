@@ -12,37 +12,31 @@
 
 #define TABLE_SIZE 100
 
-static uint32_t hash_djb2(char* str);
-static node_t *create_node(char *key, void *data);
 
-struct node {
-    char *key;
+
+typedef struct node {
+    void *key;
     void *data;
-    node_t *next;
-};
+    struct node *next;
+} node_t;
 
 struct hash_table {
     node_t* buckets[TABLE_SIZE];
     int num_items;
 };
 
-static uint32_t hash_djb2(char* str) {
-    uint32_t hash = 5381;
-    int c;
-    while ((c = *str++)) {
-        hash = ((hash << 5) + hash) + c;
-    }
-    return hash;
-}
+static node_t *create_node(void *key, void *data);
+
 
 hash_table_t *create_empty_table() {
     hash_table_t *table = malloc(sizeof(table));
     assert(table);
+    table->num_items = 0;
 
     return table;
 }
 
-static node_t *create_node(char *key, void *data) {
+static node_t *create_node(void *key, void *data) {
     node_t *new_node = malloc(sizeof(*new_node));
     assert(new_node);
     new_node->key = strdup(key);
@@ -53,28 +47,29 @@ static node_t *create_node(char *key, void *data) {
     return new_node;
 }
 
-void insert_data(hash_table_t *table, char *key, void *data) {
-    uint32_t index = hash_djb2(key) % TABLE_SIZE;
+void insert_data(hash_table_t *table, void *key, void *data, hash_func hash) {
+    uint32_t index = hash(key) % TABLE_SIZE;
 
     node_t *new_node = create_node(key, data);
 
     if (table->buckets[index] == NULL) {
         table->buckets[index] = new_node;
     } else {
-        node_t* current = table->buckets[index];
+        node_t *current = table->buckets[index];
         while (current->next != NULL) {
             current = current->next;
         }
         current->next = new_node;
     }
+    table->num_items++;
 }
 
-void *get_data(hash_table_t *table, char *key) {
-    uint32_t index = hash_djb2(key) % TABLE_SIZE;
+void *get_data(hash_table_t *table, void *key, hash_func hash, compare_func cmp) {
+    uint32_t index = hash(key) % TABLE_SIZE;
 
     node_t *current = table->buckets[index];
     while (current) {
-        if (strcmp(current->key, key) == 0) {
+        if (cmp(current->key, key) == 0) {
             return current->data;
         }
         current = current->next;
