@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <endian.h>
+#include <time.h>
 #include "hash_table.h"
 
 // use to change depending on system
@@ -44,9 +45,8 @@
 struct rpc_server {
     int sockfd;
     int listenfd;
-    // will have hash-table later (one handler for now)
-    hash_table_t *procedures;
-
+    hash_table_t *reg_procedures;
+    hash_table_t *found_procedures;
 };
 
 struct rpc_client {
@@ -54,8 +54,14 @@ struct rpc_client {
 };
 
 struct rpc_handle {
-    int id;
+    uint32_t id;
 };
+
+struct handler_item {
+    rpc_handler handler;
+    uint32_t id;
+};
+
 
 static size_t send_size(size_t size, int sockfd);
 static size_t recv_size(int sockfd);
@@ -68,6 +74,9 @@ static size_t send_int(int sockfd, int data);
 static size_t send_void(int sockfd, size_t size, void *data);
 static size_t recv_void(int sockfd, size_t size, void *data);
 static uint32_t hash_djb2(char* str);
+static uint32_t hash_int(uint32_t* num);
+static uint32_t generate_id();
+int intcmp(uint32_t *a, uint32_t *b);
 
 
 
@@ -132,15 +141,19 @@ rpc_server *rpc_init_server(int port) {
 
     freeaddrinfo(res);
 
-    server->procedures = create_empty_table();
+    server->reg_procedures = create_empty_table();
+    server->found_procedures = create_empty_table();
 
 
     return server;
 }
 
 int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
-
-    insert_data(srv->procedures, name, (void *) handler, (hash_func) hash_djb2);
+    struct handler_item *item = malloc(sizeof(*item));
+    assert(item);
+    item->handler= handler;
+    item->id = generate_id();
+    insert_data(srv->reg_procedures, name, (void *) item, (hash_func) hash_djb2);
     printf("%s function registered\n", name);
     return 1;
 
@@ -171,7 +184,6 @@ void rpc_serve_all(rpc_server *srv) {
 
 
 
-
     rpc_data *data1 = malloc(sizeof(*data1));
     assert(data1);
     rpc_data *data2 = malloc(sizeof(*data2));
@@ -180,6 +192,7 @@ void rpc_serve_all(rpc_server *srv) {
     rpc_data *result1;
     rpc_data *result2;
 
+    // rpc_find
     // reads function name size
     int size = recv_size(srv->sockfd);
     printf("function name size is %d\n", size);
@@ -187,14 +200,20 @@ void rpc_serve_all(rpc_server *srv) {
     // reads function name
     recv_string(size, name, srv->sockfd);
     printf("Here is the function name: %s\n", name);
-    rpc_handler handler = (rpc_handler) get_data(srv->procedures, name, (hash_func) hash_djb2, (compare_func) strcmp);
+    struct handler_item *item = (struct handler_item *) get_data(srv->reg_procedures, name, (hash_func) hash_djb2, (compare_func) strcmp);
+    printf("function found: sending id to client\n");
+    send_int(srv->sockfd, item->id);
+    insert_data(srv->found_procedures, &item->id, (void *) item->handler, (hash_func) hash_int);
 
-
+    // rpc_call
+    uint32_t id = 0;
+    recv_int(srv->sockfd, (int *) &id);
+    printf("received id %d\n", id);
 
     recv_data(srv->sockfd, data1);
 //    if (data1.data2 != NULL) printf("stored data is %d\n", *((int*)data1.data2));
 
-    result1 = ((rpc_handler) get_data(srv->procedures, name, (hash_func) hash_djb2, (compare_func) strcmp))(data1);
+    result1 = ((rpc_handler) get_data(srv->found_procedures, &id, (hash_func) hash_int, (compare_func) intcmp))(data1);
 
     rpc_data_free(data1);
     printf("result1 is %d\n", result1->data1);
@@ -204,11 +223,15 @@ void rpc_serve_all(rpc_server *srv) {
     rpc_data_free(result1);
 
 
+    // rpc_call
+    recv_int(srv->sockfd, (int *) &id);
+    printf("received id %d\n", id);
+
     recv_data(srv->sockfd, data2);
  //   if (data2.data2 != NULL) printf("stored data is %d\n", *((int*)data2.data2));
 
 
-    result2 = ((rpc_handler) get_data(srv->procedures, name, (hash_func)hash_djb2, (compare_func) strcmp))(data2);
+    result2 = ((rpc_handler) get_data(srv->found_procedures, &id, (hash_func) hash_int, (compare_func) intcmp))(data2);
 
     rpc_data_free(data2);
     printf("result2 is %d\n", result2->data1);
@@ -283,6 +306,10 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
     // send function name to server
     send_string(name, cl->sockfd);
 
+    recv_int(cl->sockfd, (int *) &handle->id);
+
+    printf("received function id: %d\n", handle->id);
+
     return handle;
     //return NULL;
 }
@@ -292,14 +319,13 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
     //printf("CLIENT: calling function %s \n", h->name);
     rpc_data *result = malloc(sizeof(*result));
     assert(result);
-    // send function name size to server
-//    send_size(strlen(h->name), cl->sockfd);
-//
-//    // send function name to server
-//    send_string(h->name, cl->sockfd);
+
+    // send function id to server
+    printf("sending id\n");
+    send_int(cl->sockfd, h->id);
 
     // send rpc_data to server
-    printf("CLIENT: sending data\n");
+    printf("sending data\n");
     send_data(cl->sockfd, payload);
 
     recv_data(cl->sockfd, result);
@@ -538,6 +564,26 @@ static uint32_t hash_djb2(char* str) {
         hash = ((hash << 5) + hash) + c;
     }
     return hash;
+}
+
+static uint32_t hash_int(uint32_t* num) {
+    return *num;
+}
+
+static uint32_t generate_id() {
+    static uint32_t counter = 0;
+    time_t curr_time = time(NULL);
+    return (uint32_t) curr_time + counter++;
+}
+
+int intcmp(uint32_t *a, uint32_t *b) {
+    if (*a < *b) {
+        return -1;
+    } else if (*a > *b) {
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 

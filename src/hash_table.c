@@ -6,7 +6,6 @@
 
 #include "hash_table.h"
 #include <stdlib.h>
-#include <string.h>
 #include <stdint.h>
 #include <assert.h>
 
@@ -29,9 +28,13 @@ static node_t *create_node(void *key, void *data);
 
 
 hash_table_t *create_empty_table() {
-    hash_table_t *table = malloc(sizeof(table));
+    hash_table_t *table = malloc(sizeof(*table));
     assert(table);
     table->num_items = 0;
+
+    for (int i = 0; i < TABLE_SIZE; i++) {
+        table->buckets[i] = NULL;
+    }
 
     return table;
 }
@@ -39,9 +42,7 @@ hash_table_t *create_empty_table() {
 static node_t *create_node(void *key, void *data) {
     node_t *new_node = malloc(sizeof(*new_node));
     assert(new_node);
-    new_node->key = strdup(key);
-    assert(new_node->key);
-
+    new_node->key = key;
     new_node->data = data;
     new_node->next = NULL;
     return new_node;
