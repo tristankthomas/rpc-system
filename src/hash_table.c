@@ -48,7 +48,7 @@ static node_t *create_node(void *key, void *data) {
     return new_node;
 }
 
-void insert_data(hash_table_t *table, void *key, void *data, hash_func hash) {
+void insert_data(hash_table_t *table, void *key, void *data, hash_func hash, compare_func cmp) {
     uint32_t index = hash(key) % TABLE_SIZE;
 
     node_t *new_node = create_node(key, data);
@@ -57,7 +57,12 @@ void insert_data(hash_table_t *table, void *key, void *data, hash_func hash) {
         table->buckets[index] = new_node;
     } else {
         node_t *current = table->buckets[index];
+
         while (current->next != NULL) {
+            if (cmp(current->key, key) == 0) {
+                current->data = data;
+                return;
+            }
             current = current->next;
         }
         current->next = new_node;

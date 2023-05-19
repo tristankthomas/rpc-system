@@ -14,7 +14,7 @@ typedef uint32_t (*hash_func)(void *);
 typedef int (*compare_func)(void *, void *);
 
 hash_table_t *create_empty_table();
-void insert_data(hash_table_t *table, void *key, void *data, hash_func hash);
+void insert_data(hash_table_t *table, void *key, void *data, hash_func hash, compare_func cmp);
 void *get_data(hash_table_t *table, void *key, hash_func hash, compare_func cmp);
 void free_table(hash_table_t *table);
 

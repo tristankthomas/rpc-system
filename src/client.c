@@ -6,11 +6,13 @@
 int main(int argc, char *argv[]) {
     int exit_code = 0;
 
-    rpc_client *state = rpc_init_client("::1", 3000);
+    rpc_client *state = rpc_init_client("::1", 6000);
     if (state == NULL) {
         exit(EXIT_FAILURE);
     }
 
+
+    rpc_handle *handle_nonexistent = rpc_find(state, "non-existent");
     rpc_handle *handle_add2 = rpc_find(state, "add2");
     if (handle_add2 == NULL) {
         fprintf(stderr, "ERROR: Function add2 does not exist\n");

@@ -5,10 +5,12 @@ RPC_SYSTEM_A=rpc.a
 HASH_TABLE=hash_table.o
 EXE1=server
 EXE2=client
+EXE3=server_test
+EXE4=client_test
 
 .PHONY: format all
 
-all: $(RPC_SYSTEM_A) $(EXE1) $(EXE2)
+all: $(RPC_SYSTEM_A) $(EXE1) $(EXE2) $(EXE3) $(EXE4)
 
 $(RPC_SYSTEM): src/rpc.c src/rpc.h
 	$(CC) -c -o $@ $< $(CFLAGS)
@@ -28,7 +30,11 @@ $(EXE2): src/client.c $(RPC_SYSTEM_A)
 
 
 
+$(EXE3): artifacts/server.a $(RPC_SYSTEM_A)
+	$(CC) $(CFLAGS) -o $@ $< $(RPC_SYSTEM_A)
 
+$(EXE4): artifacts/client.a $(RPC_SYSTEM_A)
+	$(CC) $(CFLAGS) -o $@ $< $(RPC_SYSTEM_A)
 
 # removing files
 clean:

@@ -44,6 +44,8 @@
 
 #define FIND 'f'
 #define CALL 'c'
+#define FOUND 'y'
+#define NOT_FOUND 'n'
 
 struct rpc_server {
     int sockfd;
@@ -108,7 +110,8 @@ rpc_server *rpc_init_server(int port) {
     s = getaddrinfo(NULL, port_str, &hints, &res);
     if (s != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
-    };
+        return NULL;
+    }
 
     // finding a valid IPv6 address
     for (p = res; p != NULL; p = p->ai_next) {
@@ -122,25 +125,25 @@ rpc_server *rpc_init_server(int port) {
 
     if (listenfd < 0) {
         perror("socket");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
 
 
     if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
         perror("setsockopt");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
 
     // bind
     if (bind(listenfd, res->ai_addr, res->ai_addrlen) < 0) {
         perror("bind");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
 
     // listen (blocking)
     if (listen(listenfd, 5) < 0) {
         perror("listen");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
 
 
@@ -156,14 +159,65 @@ rpc_server *rpc_init_server(int port) {
     return server;
 }
 
+
+rpc_client *rpc_init_client(char *addr, int port) {
+    int connectfd, s;
+    struct addrinfo hints, *servinfo, *p;
+    char port_str[6];
+    struct rpc_client *client = malloc(sizeof(*client));
+
+    assert(client);
+
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_INET6;
+    hints.ai_socktype = SOCK_STREAM;
+    // convert port to string
+    sprintf(port_str, "%d", port);
+    s = getaddrinfo(addr, port_str, &hints, &servinfo);
+    if (s != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+        return NULL;
+    }
+    // connect to the server
+    for (p = servinfo; p != NULL; p = p->ai_next) {
+        connectfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (connectfd == -1) {
+            continue;
+        }
+        if (connect(connectfd, p->ai_addr, p->ai_addrlen) != -1) {
+            printf("connection successfully made\n");
+            break;
+        }
+        close(connectfd);
+    }
+
+    if (p == NULL) {
+        fprintf(stderr, "client: failed to connect\n");
+        return NULL;
+    }
+    // assign to client
+    client->sockfd = connectfd;
+
+    freeaddrinfo(servinfo);
+
+
+    return client;
+}
+
 int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
+    if (srv == NULL || name == NULL || handler == NULL) {
+        return -1;
+    }
     struct handler_item *item = malloc(sizeof(*item));
+    char *name_cpy = strdup(name);
+    assert(name_cpy);
     assert(item);
     item->handler= handler;
     item->id = generate_id();
-    insert_data(srv->reg_procedures, name, (void *) item, (hash_func) hash_djb2);
-    printf("%s function registered\n", name);
-    return 1;
+    insert_data(srv->reg_procedures, name_cpy, (void *) item, (hash_func) hash_djb2, (compare_func) strcmp);
+    printf("%s function registered\n", name_cpy);
+    return item->id;
 
 }
 
@@ -191,6 +245,7 @@ void rpc_serve_all(rpc_server *srv) {
     printf("new connection from %s:%d on socket %d\n", ip, port, connectfd);
 
     char type;
+    int size;
 
     while(1) {
         // type (either find or call)
@@ -199,7 +254,7 @@ void rpc_serve_all(rpc_server *srv) {
         switch(type) {
             case FIND:
                 // reads function name size
-                int size = recv_size(srv->sockfd);
+                size = recv_size(srv->sockfd);
                 printf("function name size is %d\n", size);
 
                 // reads function name
@@ -207,10 +262,20 @@ void rpc_serve_all(rpc_server *srv) {
                 printf("Here is the function name: %s\n", name);
                 struct handler_item *item = (struct handler_item *) get_data(srv->reg_procedures, name, (hash_func) hash_djb2, (compare_func) strcmp);
                 printf("function found: sending id to client\n");
-                // send id to client
-                send_int(srv->sockfd, item->id);
 
-                insert_data(srv->found_procedures, &item->id, (void *) item->handler, (hash_func) hash_int);
+                if (item) {
+                    send_type(srv->sockfd, FOUND);
+                    // send id to client
+                    send_int(srv->sockfd, item->id);
+
+                } else {
+                    send_type(srv->sockfd, NOT_FOUND);
+                    continue;
+                }
+
+
+
+                insert_data(srv->found_procedures, &item->id, (void *) item->handler, (hash_func) hash_int, (compare_func) intcmp);
 
                 break;
             case CALL:
@@ -243,57 +308,15 @@ void rpc_serve_all(rpc_server *srv) {
 }
 
 
-rpc_client *rpc_init_client(char *addr, int port) {
-    int connectfd, s;
-    struct addrinfo hints, *servinfo, *p;
-    char port_str[6];
-    struct rpc_client *client = malloc(sizeof(*client));
 
-    assert(client);
-
-
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_INET6;
-    hints.ai_socktype = SOCK_STREAM;
-    // convert port to string
-    sprintf(port_str, "%d", port);
-    s = getaddrinfo(addr, port_str, &hints, &servinfo);
-    if (s != 0) {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
-        exit(EXIT_FAILURE);
-    }
-    // connect to the server
-    for (p = servinfo; p != NULL; p = p->ai_next) {
-        connectfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-        if (connectfd == -1) {
-            continue;
-        }
-        if (connect(connectfd, p->ai_addr, p->ai_addrlen) != -1) {
-            printf("connection successfully made\n");
-            break;
-        }
-        close(connectfd);
-    }
-
-    if (p == NULL) {
-        fprintf(stderr, "client: failed to connect\n");
-        return NULL;
-    }
-    // assign to client
-    client->sockfd = connectfd;
-
-    freeaddrinfo(servinfo);
-
-
-    return client;
-}
 
 rpc_handle *rpc_find(rpc_client *cl, char *name) {
     //printf("CLIENT: finding function %s \n", name);
-    rpc_handle *handle = malloc(sizeof(*handle));
-    assert(handle);
-    handle->id = 0;
-
+    if (cl == NULL || name == NULL) {
+        return NULL;
+    }
+    char found;
+    rpc_handle *handle = NULL;
     send_type(cl->sockfd, FIND);
 
     // send function name size to server
@@ -301,18 +324,23 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
 
     // send function name to server
     send_string(name, cl->sockfd);
+    recv_type(cl->sockfd, &found);
 
-    recv_int(cl->sockfd, (int *) &handle->id);
-
-    printf("received function id: %d\n", handle->id);
+    if (found == FOUND) {
+        handle = malloc(sizeof(*handle));
+        assert(handle);
+        recv_int(cl->sockfd, (int *) &handle->id);
+        printf("received function id: %d\n", handle->id);
+    }
 
     return handle;
-    //return NULL;
 }
 
 
 rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
-    //printf("CLIENT: calling function %s \n", h->name);
+    if (cl == NULL || h == NULL || payload == NULL) {
+        return NULL;
+    }
     rpc_data *result = malloc(sizeof(*result));
     assert(result);
 
@@ -429,7 +457,7 @@ static size_t recv_string(size_t size, char *buffer, int sockfd) {
             perror("recv");
             exit(EXIT_FAILURE);
         } else if (n == 0) {
-            break;
+            return n;
         } else {
             bytes_received += n;
             if (bytes_received == size) {
@@ -462,6 +490,7 @@ static size_t recv_size(int sockfd) {
             perror("recv");
             exit(EXIT_FAILURE);
         } else if (n == 0) {
+            return n;
             break;
         } else {
             bytes_received += (size_t) n;
@@ -494,8 +523,7 @@ static size_t recv_data(int sockfd, rpc_data *buffer) {
     if (data_2_len > 0) {
         buffer->data2 = malloc(data_2_len);
         assert(buffer->data2);
-        size_t num = recv_void(sockfd, data_2_len, buffer->data2);
-        printf("received data_2 of size %zu\n", num);
+        size_t n = recv_void(sockfd, data_2_len, buffer->data2);
 //        if (buffer->data2 != NULL) printf("data is %d\n",  *((int *) buffer->data2));
     } else {
         buffer->data2 = NULL;
@@ -515,6 +543,7 @@ static size_t recv_void(int sockfd, size_t size, void *data) {
             perror("recv");
             exit(EXIT_FAILURE);
         } else if (n == 0) {
+            return n;
             break;
         } else {
             bytes_received += (size_t) n;
@@ -538,6 +567,7 @@ static size_t recv_int(int sockfd, int *data) {
             perror("recv");
             exit(EXIT_FAILURE);
         } else if (n == 0) {
+            return n;
             break;
         } else {
             bytes_received += (size_t) n;
@@ -561,6 +591,8 @@ static size_t recv_type(int sockfd, char *data) {
     if (n < 0) {
         perror("recv");
         exit(EXIT_FAILURE);
+    } else if (n == 0) {
+        return n;
     }
 
     return n;
@@ -610,7 +642,12 @@ int intcmp(uint32_t *a, uint32_t *b) {
 
 
 void rpc_close_client(rpc_client *cl) {
-    free(cl);
+    if (cl) {
+        close(cl->sockfd);
+        free(cl);
+        cl = NULL;
+    }
+
 }
 
 void rpc_data_free(rpc_data *data) {

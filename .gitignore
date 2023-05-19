@@ -3,3 +3,7 @@
 *.a
 client
 server
+client_test
+server_test
+cases
+artifacts
