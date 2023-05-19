@@ -48,7 +48,6 @@
 #define NOT_FOUND 'n'
 
 struct rpc_server {
-    int sockfd;
     int listenfd;
     hash_table_t *reg_procedures;
     hash_table_t *found_procedures;
@@ -235,7 +234,6 @@ void rpc_serve_all(rpc_server *srv) {
         perror("accept");
         return;
     }
-    srv->sockfd = connectfd;
 
     // Print ipv4 peer information (can be removed)
     getpeername(connectfd, (struct sockaddr *) &client_addr, &client_addr_size);
@@ -249,27 +247,27 @@ void rpc_serve_all(rpc_server *srv) {
 
     while(1) {
         // type (either find or call)
-        recv_type(srv->sockfd, &type);
+        recv_type(connectfd, &type);
 
         switch(type) {
             case FIND:
                 // reads function name size
-                size = recv_size(srv->sockfd);
+                size = recv_size(connectfd);
                 printf("function name size is %d\n", size);
 
                 // reads function name
-                recv_string(size, name, srv->sockfd);
+                recv_string(size, name, connectfd);
                 printf("Here is the function name: %s\n", name);
                 struct handler_item *item = (struct handler_item *) get_data(srv->reg_procedures, name, (hash_func) hash_djb2, (compare_func) strcmp);
                 printf("function found: sending id to client\n");
 
                 if (item) {
-                    send_type(srv->sockfd, FOUND);
+                    send_type(connectfd, FOUND);
                     // send id to client
-                    send_int(srv->sockfd, item->id);
+                    send_int(connectfd, item->id);
 
                 } else {
-                    send_type(srv->sockfd, NOT_FOUND);
+                    send_type(connectfd, NOT_FOUND);
                     continue;
                 }
 
@@ -284,17 +282,17 @@ void rpc_serve_all(rpc_server *srv) {
                 rpc_data *result;
 
                 uint32_t id = 0;
-                recv_int(srv->sockfd, (int *) &id);
+                recv_int(connectfd, (int *) &id);
                 printf("received id %d\n", id);
 
-                recv_data(srv->sockfd, data);
+                recv_data(connectfd, data);
 
                 result = ((rpc_handler) get_data(srv->found_procedures, &id, (hash_func) hash_int, (compare_func) intcmp))(data);
 
                 rpc_data_free(data);
                 printf("result is %d\n", result->data1);
 
-                send_data(srv->sockfd, result);
+                send_data(connectfd, result);
 
                 rpc_data_free(result);
 
