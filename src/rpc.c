@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <endian.h>
 #include <time.h>
+#include <pthread.h>
 #include "hash_table.h"
 
 // use to change depending on system
@@ -48,8 +49,11 @@
 #define FOUND 'y'
 #define NOT_FOUND 'n'
 
+#define NONBLOCKING
+
 struct rpc_server {
     int listenfd;
+    int connectfd;
     hash_table_t *reg_procedures;
     hash_table_t *found_procedures;
 };
@@ -86,6 +90,7 @@ static uint32_t generate_id();
 int intcmp(uint32_t *a, uint32_t *b);
 static size_t send_type(int sockfd, char data);
 static size_t recv_type(int sockfd, char *data);
+void *handle_connection(void *srv);
 
 
 
@@ -222,36 +227,56 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
 }
 
 void rpc_serve_all(rpc_server *srv) {
-    char name[255];
 
     // make connection
     struct sockaddr_in6 client_addr;
     socklen_t client_addr_size = sizeof(client_addr);
     char ip[INET6_ADDRSTRLEN];
     int port;
-    // accept connection from client (takes from listen queue)
-    int connectfd = accept(srv->listenfd, (struct sockaddr *) &client_addr, &client_addr_size);
-    if (connectfd < 0) {
-        perror("accept");
-        return;
-    }
 
-    // Print ipv4 peer information (can be removed)
-    getpeername(connectfd, (struct sockaddr *) &client_addr, &client_addr_size);
-    inet_ntop(client_addr.sin6_family, &client_addr.sin6_addr, ip, INET6_ADDRSTRLEN);
-    // client port
-    port = ntohs(client_addr.sin6_port);
-    printf("new connection from %s:%d on socket %d\n", ip, port, connectfd);
+    int count = 0;
+    while (1) {
+        // accept connection from client (takes from listen queue)
+        printf("accepting another connection\n");
+        int connectfd = accept(srv->listenfd, (struct sockaddr *) &client_addr, &client_addr_size);
+        if (connectfd < 0) {
+            perror("accept");
+        }
+        printf("%d\n", count++);
+
+        // show connection
+        // Print ipv4 peer information
+        getpeername(connectfd, (struct sockaddr *) &client_addr, &client_addr_size);
+        inet_ntop(client_addr.sin6_family, &client_addr.sin6_addr, ip, INET6_ADDRSTRLEN);
+        // client port
+        port = ntohs(client_addr.sin6_port);
+        printf("new connection from %s:%d on socket %d\n", ip, port, connectfd);
+        srv->connectfd = connectfd;
+        // Create a new thread for each accepted connection
+        pthread_t thread;
+        if (pthread_create(&thread, NULL, handle_connection, srv) != 0) {
+            fprintf(stderr, "failed to create thread for connection\n");
+            close(connectfd);
+        }
+    }
+}
+
+void *handle_connection(void *arg) {
+    // Retrieve the connection file descriptor from the argument
+    rpc_server *srv = (rpc_server *) arg;
+    int connectfd = srv->connectfd;
 
     char type;
     size_t size;
+    char name[255];
 
     while(1) {
         // type (either find or call)
         type = DEFAULT;
         if (recv_type(connectfd, &type) == 0) {
-            printf("closing connection1\n");
+            printf("closing connection\n");
             close(connectfd);
+            pthread_exit(NULL);
         };
 
         switch(type) {
@@ -260,6 +285,7 @@ void rpc_serve_all(rpc_server *srv) {
                 if (recv_size(connectfd, &size) == 0) {
                     printf("closing connection\n");
                     close(connectfd);
+                    pthread_exit(NULL);
                 };
                 printf("function name size is %zu\n", size);
 
@@ -267,6 +293,7 @@ void rpc_serve_all(rpc_server *srv) {
                 if (recv_string(size, name, connectfd) == 0) {
                     printf("closing connection\n");
                     close(connectfd);
+                    pthread_exit(NULL);
                 };
                 printf("Here is the function name: %s\n", name);
                 struct handler_item *item = (struct handler_item *) get_data(srv->reg_procedures, name, (hash_func) hash_djb2, (compare_func) strcmp);
@@ -282,11 +309,10 @@ void rpc_serve_all(rpc_server *srv) {
                     continue;
                 }
 
-
-
                 insert_data(srv->found_procedures, &item->id, (void *) item->handler, (hash_func) hash_int, (compare_func) intcmp);
 
                 break;
+
             case CALL:
                 rpc_data *data = malloc(sizeof(*data));
                 assert(data);
@@ -296,12 +322,14 @@ void rpc_serve_all(rpc_server *srv) {
                 if (recv_int(connectfd, (int *) &id) == 0) {
                     printf("closing connection\n");
                     close(connectfd);
+                    pthread_exit(NULL);
                 }
                 printf("received id %d\n", id);
 
                 if (recv_data(connectfd, data) == 0) {
-                    printf("closing client socket\n");
+                    printf("closing connection\n");
                     close(connectfd);
+                    pthread_exit(NULL);
                 }
 
                 result = ((rpc_handler) get_data(srv->found_procedures, &id, (hash_func) hash_int, (compare_func) intcmp))(data);
@@ -321,8 +349,9 @@ void rpc_serve_all(rpc_server *srv) {
 
     }
 
-
 }
+
+
 
 
 
