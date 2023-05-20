@@ -94,7 +94,7 @@ rpc_server *rpc_init_server(int port) {
     hints.ai_flags = AI_PASSIVE;
     s = getaddrinfo(NULL, port_str, &hints, &res);
     if (s != 0) {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+        fprintf(stderr, "Address info failure\n");
         return NULL;
     }
 
@@ -109,25 +109,25 @@ rpc_server *rpc_init_server(int port) {
     }
 
     if (listenfd < 0) {
-        perror("socket");
+        fprintf(stderr, "Failed to create socket\n");
         return NULL;
     }
 
 
     if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
-        perror("setsockopt");
+        fprintf(stderr, "Failed to set options\n");
         return NULL;
     }
 
     // bind
     if (bind(listenfd, res->ai_addr, res->ai_addrlen) < 0) {
-        perror("bind");
+        fprintf(stderr, "Failed to bind\n");
         return NULL;
     }
 
     // listen (blocking)
     if (listen(listenfd, 5) < 0) {
-        perror("listen");
+        fprintf(stderr, "Failed to listen\n");
         return NULL;
     }
 
@@ -161,7 +161,7 @@ rpc_client *rpc_init_client(char *addr, int port) {
     sprintf(port_str, "%d", port);
     s = getaddrinfo(addr, port_str, &hints, &servinfo);
     if (s != 0) {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+        fprintf(stderr, "Address info failure\n");
         return NULL;
     }
     // connect to the server
@@ -178,7 +178,7 @@ rpc_client *rpc_init_client(char *addr, int port) {
     }
 
     if (p == NULL) {
-        fprintf(stderr, "client: failed to connect\n");
+        fprintf(stderr, "Failed to connect to server\n");
         return NULL;
     }
     // assign to client
@@ -192,14 +192,17 @@ rpc_client *rpc_init_client(char *addr, int port) {
 
 int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
     if (srv == NULL || name == NULL || handler == NULL) {
+        fprintf(stderr, "Invalid arguments\n");
         return -1;
     }
     struct handler_item *item = malloc(sizeof(*item));
     char *name_cpy = strdup(name);
+    // change these asserts to return -1
     assert(name_cpy);
     assert(item);
     item->handler= handler;
     item->id = generate_id();
+    // add error handling here
     insert_data(srv->reg_procedures, name_cpy, (void *) item, (hash_func) hash_djb2, (compare_func) strcmp);
 //    printf("%s function registered\n", name_cpy);
     return item->id;
@@ -207,7 +210,10 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
 }
 
 void rpc_serve_all(rpc_server *srv) {
-
+    if (srv == NULL) {
+        fprintf(stderr, "Invalid arguments\n");
+        exit(EXIT_FAILURE);
+    }
     // make connection
     struct sockaddr_in6 client_addr;
     socklen_t client_addr_size = sizeof(client_addr);
@@ -319,7 +325,11 @@ void *handle_connection(void *arg) {
                 }
 
                 result = ((rpc_handler) get_data(srv->found_procedures, &id, (hash_func) hash_int, (compare_func) intcmp))(data);
-
+                if ((result->data2 && !result->data2_len) || (!result->data2 && result->data2_len)) {
+                    fprintf(stderr, "Inconsistent data\n");
+                    close(connectfd);
+                    pthread_exit(NULL);
+                }
                 rpc_data_free(data);
 //                printf("result is %d\n", result->data1);
 
@@ -348,6 +358,7 @@ void *handle_connection(void *arg) {
 rpc_handle *rpc_find(rpc_client *cl, char *name) {
     //printf("CLIENT: finding function %s \n", name);
     if (cl == NULL || name == NULL) {
+        fprintf(stderr, "Invalid arguments\n");
         return NULL;
     }
     char found;
@@ -386,6 +397,12 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
 
 rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
     if (cl == NULL || h == NULL || payload == NULL) {
+        fprintf(stderr, "Invalid arguments\n");
+        return NULL;
+    }
+
+    if ((payload->data2 && !payload->data2_len) || (!payload->data2 && payload->data2_len)) {
+        fprintf(stderr, "Inconsistent data\n");
         return NULL;
     }
     rpc_data *result = malloc(sizeof(*result));
