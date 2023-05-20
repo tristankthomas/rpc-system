@@ -191,7 +191,7 @@ rpc_client *rpc_init_client(char *addr, int port) {
             continue;
         }
         if (connect(connectfd, p->ai_addr, p->ai_addrlen) != -1) {
-            printf("connection successfully made\n");
+//            printf("connection successfully made\n");
             break;
         }
         close(connectfd);
@@ -221,7 +221,7 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
     item->handler= handler;
     item->id = generate_id();
     insert_data(srv->reg_procedures, name_cpy, (void *) item, (hash_func) hash_djb2, (compare_func) strcmp);
-    printf("%s function registered\n", name_cpy);
+//    printf("%s function registered\n", name_cpy);
     return item->id;
 
 }
@@ -237,12 +237,12 @@ void rpc_serve_all(rpc_server *srv) {
     int count = 0;
     while (1) {
         // accept connection from client (takes from listen queue)
-        printf("accepting another connection\n");
+//        printf("accepting another connection\n");
         int connectfd = accept(srv->listenfd, (struct sockaddr *) &client_addr, &client_addr_size);
         if (connectfd < 0) {
             perror("accept");
         }
-        printf("%d\n", count++);
+//        printf("%d\n", count++);
 
         // show connection
         // Print ipv4 peer information
@@ -250,7 +250,7 @@ void rpc_serve_all(rpc_server *srv) {
         inet_ntop(client_addr.sin6_family, &client_addr.sin6_addr, ip, INET6_ADDRSTRLEN);
         // client port
         port = ntohs(client_addr.sin6_port);
-        printf("new connection from %s:%d on socket %d\n", ip, port, connectfd);
+//        printf("new connection from %s:%d on socket %d\n", ip, port, connectfd);
         srv->connectfd = connectfd;
         // Create a new thread for each accepted connection
         pthread_t thread;
@@ -274,7 +274,7 @@ void *handle_connection(void *arg) {
         // type (either find or call)
         type = DEFAULT;
         if (recv_type(connectfd, &type) == 0) {
-            printf("closing connection\n");
+//            printf("closing connection\n");
             close(connectfd);
             pthread_exit(NULL);
         };
@@ -283,21 +283,21 @@ void *handle_connection(void *arg) {
             case FIND:
                 // reads function name size
                 if (recv_size(connectfd, &size) == 0) {
-                    printf("closing connection\n");
+//                    printf("closing connection\n");
                     close(connectfd);
                     pthread_exit(NULL);
                 };
-                printf("function name size is %zu\n", size);
+//                printf("function name size is %zu\n", size);
 
                 // reads function name
                 if (recv_string(size, name, connectfd) == 0) {
-                    printf("closing connection\n");
+//                    printf("closing connection\n");
                     close(connectfd);
                     pthread_exit(NULL);
                 };
-                printf("Here is the function name: %s\n", name);
+//                printf("Here is the function name: %s\n", name);
                 struct handler_item *item = (struct handler_item *) get_data(srv->reg_procedures, name, (hash_func) hash_djb2, (compare_func) strcmp);
-                printf("function found: sending id to client\n");
+//                printf("function found: sending id to client\n");
 
                 if (item) {
                     send_type(connectfd, FOUND);
@@ -320,14 +320,14 @@ void *handle_connection(void *arg) {
 
                 uint32_t id = 0;
                 if (recv_int(connectfd, (int *) &id) == 0) {
-                    printf("closing connection\n");
+//                    printf("closing connection\n");
                     close(connectfd);
                     pthread_exit(NULL);
                 }
-                printf("received id %d\n", id);
+//                printf("received id %d\n", id);
 
                 if (recv_data(connectfd, data) == 0) {
-                    printf("closing connection\n");
+//                    printf("closing connection\n");
                     close(connectfd);
                     pthread_exit(NULL);
                 }
@@ -335,7 +335,7 @@ void *handle_connection(void *arg) {
                 result = ((rpc_handler) get_data(srv->found_procedures, &id, (hash_func) hash_int, (compare_func) intcmp))(data);
 
                 rpc_data_free(data);
-                printf("result is %d\n", result->data1);
+//                printf("result is %d\n", result->data1);
 
                 send_data(connectfd, result);
 
@@ -376,7 +376,7 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
         handle = malloc(sizeof(*handle));
         assert(handle);
         recv_int(cl->sockfd, (int *) &handle->id);
-        printf("received function id: %d\n", handle->id);
+//        printf("received function id: %d\n", handle->id);
     }
 
     return handle;
@@ -393,11 +393,11 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
     send_type(cl->sockfd, CALL);
 
     // send function id to server
-    printf("sending id\n");
+//    printf("sending id\n");
     send_int(cl->sockfd, h->id);
 
     // send rpc_data to server
-    printf("sending data\n");
+//    printf("sending data\n");
     send_data(cl->sockfd, payload);
 
     recv_data(cl->sockfd, result);
@@ -420,17 +420,17 @@ static size_t send_data(int sockfd, rpc_data *data) {
 
     // send data_1 int
 
-    printf("sending data_1: %d\n", data_1);
+//    printf("sending data_1: %d\n", data_1);
     send_int(sockfd, data_1);
 
 
     // send data_2_length
-    printf("sending data_2_length: %zu\n", size);
+//    printf("sending data_2_length: %zu\n", size);
     send_size(size, sockfd);
 
     // send data_2
     if (size > 0) {
-        printf("sending data_2\n");
+//        printf("sending data_2\n");
         send_void(sockfd, size, data_2);
     }
 
@@ -495,7 +495,7 @@ static size_t send_int(int sockfd, int data) {
 static size_t recv_string(size_t size, char *buffer, int sockfd) {
 
     int bytes_received = 0;
-    printf("receiving message\n");
+//    printf("receiving message\n");
     while (1) {
         int n = recv(sockfd, buffer + bytes_received, size - bytes_received, 0);
 
@@ -503,7 +503,7 @@ static size_t recv_string(size_t size, char *buffer, int sockfd) {
             perror("recv");
             exit(EXIT_FAILURE);
         } else if (n == 0) {
-            printf("connection lost");
+//            printf("connection lost");
             return n;
         } else {
             bytes_received += n;
@@ -528,7 +528,7 @@ static size_t recv_size(int sockfd, size_t *size) {
     uintsize_t message_size = 0;
 
     size_t bytes_received = 0;
-    printf("receiving message size\n");
+//    printf("receiving message size\n");
     size_t s_size = sizeof(uintsize_t);
     while (1) {
         ssize_t n = recv(sockfd, &message_size + bytes_received, s_size - bytes_received, 0);
@@ -537,7 +537,7 @@ static size_t recv_size(int sockfd, size_t *size) {
             perror("recv");
             exit(EXIT_FAILURE);
         } else if (n == 0) {
-            printf("connection lost\n");
+//            printf("connection lost\n");
             return n;
         } else {
             bytes_received += (size_t) n;
@@ -564,7 +564,7 @@ static size_t recv_data(int sockfd, rpc_data *buffer) {
         return 0;
     }
     buffer->data1 = data_1;
-    printf("received data1: %d\n", buffer->data1);
+//    printf("received data1: %d\n", buffer->data1);
 
     // receiving data_2 length
     if (recv_size(sockfd, &data_2_len) == 0) {
@@ -572,7 +572,7 @@ static size_t recv_data(int sockfd, rpc_data *buffer) {
         return 0;
     }
     buffer->data2_len = data_2_len;
-    printf("received data2_len: %zu\n", buffer->data2_len);
+//    printf("received data2_len: %zu\n", buffer->data2_len);
 
     // receiving data_2
     if (data_2_len > 0) {
@@ -584,7 +584,7 @@ static size_t recv_data(int sockfd, rpc_data *buffer) {
 //        if (buffer->data2 != NULL) printf("data is %d\n",  *((int *) buffer->data2));
     } else {
         buffer->data2 = NULL;
-        printf("no bytes read\n");
+//        printf("no bytes read\n");
     }
 
 
@@ -600,7 +600,7 @@ static size_t recv_void(int sockfd, size_t size, void *data) {
             perror("recv");
             exit(EXIT_FAILURE);
         } else if (n == 0) {
-            printf("connection disconnected\n");
+//            printf("connection disconnected\n");
             return n;
         } else {
             bytes_received += (size_t) n;
@@ -624,7 +624,7 @@ static size_t recv_int(int sockfd, int *data) {
             perror("recv");
             exit(EXIT_FAILURE);
         } else if (n == 0) {
-            printf("connection disconnected\n");
+//            printf("connection disconnected\n");
             return n;
         } else {
             bytes_received += (size_t) n;
