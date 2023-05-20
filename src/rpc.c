@@ -22,26 +22,6 @@
     #define ntohll(x) be64toh(x)
 #endif
 
-#if defined(__SIZEOF_SIZE_T__)
-    #if __SIZEOF_SIZE_T__ == 2
-        typedef uint16_t uintsize_t;
-        #define htonsize(x) htons(x)
-        #define ntohsize(x) ntohs(x)
-    #elif __SIZEOF_SIZE_T__ == 4
-        typedef uint32_t uintsize_t;
-        #define htonsize(x) htonl(x)
-        #define ntohsize(x) ntohl(x)
-    #elif __SIZEOF_SIZE_T__ == 8
-        typedef uint64_t uintsize_t;
-        #define htonsize(x) htonll(x)
-        #define ntohsize(x) ntohll(x)
-    #else
-        #error "Unsupported size for size_t"
-    #endif
-#else
-    #error "Cannot determine size of size_t"
-#endif
-
 
 #define FIND 'f'
 #define CALL 'c'
@@ -74,22 +54,22 @@ struct handler_item {
 
 
 
-static size_t send_size(size_t size, int sockfd);
-static size_t recv_size(int sockfd, size_t *size);
-static size_t send_string(char *message, int sockfd);
-static size_t recv_string(size_t size, char *buffer, int sockfd);
-static size_t send_data(int sockfd, rpc_data *data);
-static size_t recv_data(int sockfd, rpc_data *buffer);
-static size_t recv_int(int sockfd, int *data);
-static size_t send_int(int sockfd, int data);
-static size_t send_void(int sockfd, size_t size, void *data);
-static size_t recv_void(int sockfd, size_t size, void *data);
+static int send_size(size_t size, int sockfd);
+static int recv_size(int sockfd, size_t *size);
+static int send_string(char *message, int sockfd);
+static int recv_string(size_t size, char *buffer, int sockfd);
+static int send_data(int sockfd, rpc_data *data);
+static int recv_data(int sockfd, rpc_data *buffer);
+static int recv_int(int sockfd, int *data);
+static int send_int(int sockfd, int data);
+static int send_void(int sockfd, size_t size, void *data);
+static int recv_void(int sockfd, size_t size, void *data);
 static uint32_t hash_djb2(char* str);
 static uint32_t hash_int(uint32_t* num);
 static uint32_t generate_id();
 int intcmp(uint32_t *a, uint32_t *b);
-static size_t send_type(int sockfd, char data);
-static size_t recv_type(int sockfd, char *data);
+static int send_type(int sockfd, char data);
+static int recv_type(int sockfd, char *data);
 void *handle_connection(void *srv);
 
 
@@ -240,7 +220,7 @@ void rpc_serve_all(rpc_server *srv) {
 //        printf("accepting another connection\n");
         int connectfd = accept(srv->listenfd, (struct sockaddr *) &client_addr, &client_addr_size);
         if (connectfd < 0) {
-            perror("accept");
+            fprintf(stderr, "Connection failed\n");
         }
 //        printf("%d\n", count++);
 
@@ -255,7 +235,7 @@ void rpc_serve_all(rpc_server *srv) {
         // Create a new thread for each accepted connection
         pthread_t thread;
         if (pthread_create(&thread, NULL, handle_connection, srv) != 0) {
-            fprintf(stderr, "failed to create thread for connection\n");
+            fprintf(stderr, "Thread failed\n");
             close(connectfd);
         }
     }
@@ -274,7 +254,6 @@ void *handle_connection(void *arg) {
         // type (either find or call)
         type = DEFAULT;
         if (recv_type(connectfd, &type) == 0) {
-//            printf("closing connection\n");
             close(connectfd);
             pthread_exit(NULL);
         };
@@ -283,7 +262,6 @@ void *handle_connection(void *arg) {
             case FIND:
                 // reads function name size
                 if (recv_size(connectfd, &size) == 0) {
-//                    printf("closing connection\n");
                     close(connectfd);
                     pthread_exit(NULL);
                 };
@@ -291,7 +269,6 @@ void *handle_connection(void *arg) {
 
                 // reads function name
                 if (recv_string(size, name, connectfd) == 0) {
-//                    printf("closing connection\n");
                     close(connectfd);
                     pthread_exit(NULL);
                 };
@@ -300,12 +277,21 @@ void *handle_connection(void *arg) {
 //                printf("function found: sending id to client\n");
 
                 if (item) {
-                    send_type(connectfd, FOUND);
+                    if (send_type(connectfd, FOUND) == -1) {
+                        close(connectfd);
+                        pthread_exit(NULL);
+                    }
                     // send id to client
-                    send_int(connectfd, item->id);
+                    if (send_int(connectfd, item->id) == -1) {
+                        close(connectfd);
+                        pthread_exit(NULL);
+                    }
 
                 } else {
-                    send_type(connectfd, NOT_FOUND);
+                    if (send_type(connectfd, NOT_FOUND) == -1) {
+                        close(connectfd);
+                        pthread_exit(NULL);
+                    }
                     continue;
                 }
 
@@ -337,7 +323,10 @@ void *handle_connection(void *arg) {
                 rpc_data_free(data);
 //                printf("result is %d\n", result->data1);
 
-                send_data(connectfd, result);
+                if (send_data(connectfd, result) == -1) {
+                    close(connectfd);
+                    pthread_exit(NULL);
+                }
 
                 rpc_data_free(result);
 
@@ -363,19 +352,31 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
     }
     char found;
     rpc_handle *handle = NULL;
-    send_type(cl->sockfd, FIND);
+    if (send_type(cl->sockfd, FIND) == -1) {
+        return NULL;
+    }
 
     // send function name size to server
-    send_size(strlen(name), cl->sockfd);
+    if (send_size(strlen(name), cl->sockfd) == -1) {
+        return NULL;
+    }
 
     // send function name to server
-    send_string(name, cl->sockfd);
-    recv_type(cl->sockfd, &found);
+    if (send_string(name, cl->sockfd) == -1) {
+        return NULL;
+    }
+
+    if (recv_type(cl->sockfd, &found) <= 0) {
+        return NULL;
+    }
 
     if (found == FOUND) {
         handle = malloc(sizeof(*handle));
         assert(handle);
-        recv_int(cl->sockfd, (int *) &handle->id);
+        if (recv_int(cl->sockfd, (int *) &handle->id) <= 0) {
+            free(handle);
+            return NULL;
+        }
 //        printf("received function id: %d\n", handle->id);
     }
 
@@ -390,17 +391,26 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
     rpc_data *result = malloc(sizeof(*result));
     assert(result);
 
-    send_type(cl->sockfd, CALL);
+    if (send_type(cl->sockfd, CALL) == -1) {
+        return NULL;
+    }
 
     // send function id to server
 //    printf("sending id\n");
-    send_int(cl->sockfd, h->id);
+    if (send_int(cl->sockfd, h->id) == -1) {
+        return NULL;
+    }
 
     // send rpc_data to server
 //    printf("sending data\n");
-    send_data(cl->sockfd, payload);
+    if (send_data(cl->sockfd, payload) == -1) {
+        return NULL;
+    }
 
-    recv_data(cl->sockfd, result);
+    if (recv_data(cl->sockfd, result) <= 0) {
+        return NULL;
+    }
+
 
 
     return result;
@@ -413,25 +423,28 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
 
 // sending functions
 
-static size_t send_data(int sockfd, rpc_data *data) {
-    int data_1 = data->data1;
-    size_t size = data->data2_len;
-    void *data_2 = data->data2;
+static int send_data(int sockfd, rpc_data *data) {
 
     // send data_1 int
 
 //    printf("sending data_1: %d\n", data_1);
-    send_int(sockfd, data_1);
+    if (send_int(sockfd, data->data1) == -1) {
+        return -1;
+    }
 
 
     // send data_2_length
 //    printf("sending data_2_length: %zu\n", size);
-    send_size(size, sockfd);
+    if (send_size(data->data2_len, sockfd) == -1) {
+        return -1;
+    }
 
     // send data_2
-    if (size > 0) {
+    if (data->data2_len > 0) {
 //        printf("sending data_2\n");
-        send_void(sockfd, size, data_2);
+        if (send_void(sockfd, data->data2_len, data->data2) == -1) {
+            return -1;
+        }
     }
 
 
@@ -439,50 +452,58 @@ static size_t send_data(int sockfd, rpc_data *data) {
 
 }
 
-static size_t send_void(int sockfd, size_t size, void *data) {
+static int send_void(int sockfd, size_t size, void *data) {
 
-    int n = send(sockfd, data, size, 0);
+    ssize_t n = send(sockfd, data, size, 0);
     if (n < 0) {
-        perror("socket");
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "Network error sending\n");
+        return -1;
     }
 
     return n;
 
 }
 
-static size_t send_string(char *message, int sockfd) {
+static int send_string(char *message, int sockfd) {
 
     // Send message
     int n = send(sockfd, message, strlen(message), 0);
     if (n < 0) {
-        perror("socket");
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "Network error sending\n");
+        return -1;
     }
 
     return n;
 }
 
-static size_t send_size(size_t size, int sockfd) {
+static int send_size(size_t size, int sockfd) {
 
+    // use 4 bytes since 100000 fits
+    if (size > UINT32_MAX) {
+        fprintf(stderr, "Overlength error\n");
+        return -1;
+    }
+    uint32_t size_n = htonl((uint32_t) size);
 
-    uintsize_t size_n = htonsize((uintsize_t) size);
-
-    int n = send(sockfd, &size_n, sizeof(size_n), 0);
+    ssize_t n = send(sockfd, &size_n, sizeof(size_n), 0);
     if (n < 0) {
-        perror("socket");
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "Network error sending\n");
+        return -1;
     }
 
     return n;
 }
 
-static size_t send_int(int sockfd, int data) {
-    int data_n = htonl(data);
-    int n = send(sockfd, &data_n, sizeof(data_n), 0);
+static int send_int(int sockfd, int data) {
+    if (data <= INT64_MIN || data >= INT64_MAX) {
+        fprintf(stderr, "Overlength error\n");
+        return -1;
+    }
+    uint64_t data_n = (uint64_t) htonll(data);
+    ssize_t n = send(sockfd, &data_n, sizeof(data_n), 0);
     if (n < 0) {
-        perror("socket");
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "Network error sending\n");
+        return -1;
     }
 
     return n;
@@ -492,21 +513,21 @@ static size_t send_int(int sockfd, int data) {
 
 
 // receiving functios
-static size_t recv_string(size_t size, char *buffer, int sockfd) {
+static int recv_string(size_t size, char *buffer, int sockfd) {
 
-    int bytes_received = 0;
+    size_t bytes_received = 0;
 //    printf("receiving message\n");
     while (1) {
-        int n = recv(sockfd, buffer + bytes_received, size - bytes_received, 0);
+        ssize_t n = recv(sockfd, buffer + bytes_received, size - bytes_received, 0);
 
         if (n < 0) {
-            perror("recv");
-            exit(EXIT_FAILURE);
+            fprintf(stderr, "Network error receiving\n");
+            return -1;
         } else if (n == 0) {
-//            printf("connection lost");
+            fprintf(stderr, "Connection lost\n");
             return n;
         } else {
-            bytes_received += n;
+            bytes_received += (size_t) n;
             if (bytes_received == size) {
                 break;
             }
@@ -522,22 +543,22 @@ static size_t recv_string(size_t size, char *buffer, int sockfd) {
 
 
 
-static size_t recv_size(int sockfd, size_t *size) {
+static int recv_size(int sockfd, size_t *size) {
 
 
-    uintsize_t message_size = 0;
+    uint32_t message_size = 0;
 
     size_t bytes_received = 0;
 //    printf("receiving message size\n");
-    size_t s_size = sizeof(uintsize_t);
+    size_t s_size = sizeof(uint32_t);
     while (1) {
         ssize_t n = recv(sockfd, &message_size + bytes_received, s_size - bytes_received, 0);
 
         if (n < 0) {
-            perror("recv");
-            exit(EXIT_FAILURE);
+            fprintf(stderr, "Network error receiving\n");
+            return -1;
         } else if (n == 0) {
-//            printf("connection lost\n");
+            fprintf(stderr, "Connection lost\n");
             return n;
         } else {
             bytes_received += (size_t) n;
@@ -548,38 +569,38 @@ static size_t recv_size(int sockfd, size_t *size) {
 
     }
 
-    message_size = ntohsize(message_size);
+    message_size = ntohl(message_size);
 
-    *size = message_size;
+    *size = (size_t) message_size;
 
     return bytes_received;
 
 }
 
-static size_t recv_data(int sockfd, rpc_data *buffer) {
-    int data_1 = 0;
-    size_t data_2_len;
+static int recv_data(int sockfd, rpc_data *buffer) {
+    int s;
     // receiving data_1 int
-    if (recv_int(sockfd, &data_1) == 0) {
-        return 0;
+    s = recv_int(sockfd, &buffer->data1);
+    if (s <= 0) {
+        return s;
     }
-    buffer->data1 = data_1;
 //    printf("received data1: %d\n", buffer->data1);
 
     // receiving data_2 length
-    if (recv_size(sockfd, &data_2_len) == 0) {
-        // close socket
-        return 0;
+    s = recv_size(sockfd, &buffer->data2_len);
+    if (s <= 0) {
+        return s;
     }
-    buffer->data2_len = data_2_len;
 //    printf("received data2_len: %zu\n", buffer->data2_len);
 
     // receiving data_2
-    if (data_2_len > 0) {
-        buffer->data2 = malloc(data_2_len);
+    if (buffer->data2_len > 0) {
+        buffer->data2 = malloc(buffer->data2_len);
         assert(buffer->data2);
-        if (recv_void(sockfd, data_2_len, buffer->data2) == 0) {
-            return 0;
+
+        s = recv_void(sockfd, buffer->data2_len, buffer->data2);
+        if (s <= 0) {
+            return s;
         }
 //        if (buffer->data2 != NULL) printf("data is %d\n",  *((int *) buffer->data2));
     } else {
@@ -592,15 +613,15 @@ static size_t recv_data(int sockfd, rpc_data *buffer) {
     return 1;
 }
 
-static size_t recv_void(int sockfd, size_t size, void *data) {
+static int recv_void(int sockfd, size_t size, void *data) {
     size_t bytes_received = 0;
     while(1) {
         ssize_t n = recv(sockfd, data + bytes_received, size - bytes_received, 0);
         if (n < 0) {
-            perror("recv");
-            exit(EXIT_FAILURE);
+            fprintf(stderr, "Network error\n");
+            return -1;
         } else if (n == 0) {
-//            printf("connection disconnected\n");
+            fprintf(stderr, "Connection lost\n");
             return n;
         } else {
             bytes_received += (size_t) n;
@@ -614,39 +635,42 @@ static size_t recv_void(int sockfd, size_t size, void *data) {
     return bytes_received;
 }
 
-static size_t recv_int(int sockfd, int *data) {
+static int recv_int(int sockfd, int *num) {
     size_t bytes_received = 0;
-    size_t int_size = sizeof(int);
+    size_t int64_size = sizeof(uint64_t);
+    uint64_t data;
     while (1) {
-        ssize_t n = recv(sockfd, data + bytes_received, int_size - bytes_received, 0);
+        ssize_t n = recv(sockfd, &data + bytes_received, int64_size - bytes_received, 0);
 
         if (n < 0) {
-            perror("recv");
-            exit(EXIT_FAILURE);
+            fprintf(stderr, "Network error\n");
+            return -1;
         } else if (n == 0) {
-//            printf("connection disconnected\n");
+            fprintf(stderr, "Connection lost\n");
             return n;
         } else {
             bytes_received += (size_t) n;
-            if (bytes_received == int_size) {
+            if (bytes_received == int64_size) {
                 break;
             }
         }
 
     }
+    // need to check if the received 64-bit data (we know it is valid!) will fit within the int size of this host
+    // (could check by going : if ((INT64_t) data > INT_MAX || (INT64_t) data < INT_MIN) return overlength error)
 
-    *data = ntohl(*data);
+    *num = (int) ntohll(data);
 
     return bytes_received;
 }
 
-static size_t recv_type(int sockfd, char *data) {
+static int recv_type(int sockfd, char *data) {
 
     ssize_t n = recv(sockfd, data, sizeof(*data), 0);
 
     if (n < 0) {
-        perror("recv");
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "Network error\n");
+        return -1;
     } else if (n == 0) {
         return n;
     }
@@ -654,12 +678,12 @@ static size_t recv_type(int sockfd, char *data) {
     return n;
 }
 
-static size_t send_type(int sockfd, char data) {
+static int send_type(int sockfd, char data) {
 
-    int n = send(sockfd, &data, sizeof(data), 0);
+    ssize_t n = send(sockfd, &data, sizeof(data), 0);
     if (n < 0) {
-        perror("socket");
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "Network error\n");
+        return -1;
     }
 
     return n;
