@@ -173,7 +173,6 @@ rpc_client *rpc_init_client(char *addr, int port) {
             continue;
         }
         if (connect(connectfd, p->ai_addr, p->ai_addrlen) != -1) {
-//            printf("connection successfully made\n");
             break;
         }
         close(connectfd);
@@ -208,7 +207,6 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
     if (insert_data(srv->reg_procedures, name_cpy, (void *) item, (hash_func) hash_djb2, (compare_func) strcmp) == -1) {
         return -1;
     }
-//    printf("%s function registered\n", name_cpy);
     return item->id;
 
 }
@@ -221,26 +219,14 @@ void rpc_serve_all(rpc_server *srv) {
     // make connection
     struct sockaddr_in6 client_addr;
     socklen_t client_addr_size = sizeof(client_addr);
-    char ip[INET6_ADDRSTRLEN];
-    int port;
 
-    int count = 0;
     while (1) {
         // accept connection from client (takes from listen queue)
-//        printf("accepting another connection\n");
         int connectfd = accept(srv->listenfd, (struct sockaddr *) &client_addr, &client_addr_size);
         if (connectfd < 0) {
             fprintf(stderr, "Connection failed\n");
         }
-        printf("%d\n", count++);
 
-        // show connection
-        // Print ipv4 peer information
-        getpeername(connectfd, (struct sockaddr *) &client_addr, &client_addr_size);
-        inet_ntop(client_addr.sin6_family, &client_addr.sin6_addr, ip, INET6_ADDRSTRLEN);
-        // client port
-        port = ntohs(client_addr.sin6_port);
-//        printf("new connection from %s:%d on socket %d\n", ip, port, connectfd);
         srv->connectfd = connectfd;
         // Create a new thread for each accepted connection
         pthread_t thread;
@@ -275,17 +261,14 @@ void *handle_connection(void *arg) {
                     close(connectfd);
                     pthread_exit(NULL);
                 };
-//                printf("function name size is %zu\n", size);
 
                 // reads function name
                 if (recv_string(size, name, connectfd) == 0) {
                     close(connectfd);
                     pthread_exit(NULL);
                 };
-//                printf("Here is the function name: %s\n", name);
                 struct handler_item *item = (struct handler_item *) get_data(srv->reg_procedures, name, (hash_func) hash_djb2, (compare_func) strcmp);
 
-//                printf("function found: sending id to client\n");
 
                 if (item) {
                     if (send_type(connectfd, FOUND) == -1) {
@@ -319,14 +302,11 @@ void *handle_connection(void *arg) {
 
                 uint32_t id = 0;
                 if (recv_int(connectfd, (int *) &id) == 0) {
-//                    printf("closing connection\n");
                     close(connectfd);
                     pthread_exit(NULL);
                 }
-//                printf("received id %d\n", id);
 
                 if (recv_data(connectfd, data) == 0) {
-//                    printf("closing connection\n");
                     close(connectfd);
                     pthread_exit(NULL);
                 }
@@ -355,7 +335,6 @@ void *handle_connection(void *arg) {
                 }
 
                 rpc_data_free(data);
-//                printf("result is %d\n", result->data1);
 
                 if (send_data(connectfd, result) == -1) {
                     close(connectfd);
@@ -380,7 +359,6 @@ void *handle_connection(void *arg) {
 
 
 rpc_handle *rpc_find(rpc_client *cl, char *name) {
-    //printf("CLIENT: finding function %s \n", name);
     if (cl == NULL || name == NULL) {
         fprintf(stderr, "Invalid arguments\n");
         return NULL;
@@ -412,7 +390,6 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
             free(handle);
             return NULL;
         }
-//        printf("received function id: %d\n", handle->id);
     }
 
     return handle;
@@ -438,13 +415,11 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
     }
 
     // send function id to server
-//    printf("sending id\n");
     if (send_int(cl->sockfd, h->id) == -1) {
         return NULL;
     }
 
     // send rpc_data to server
-//    printf("sending data\n");
     if (send_data(cl->sockfd, payload) == -1) {
         return NULL;
     }
@@ -476,22 +451,18 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
 static int send_data(int sockfd, rpc_data *data) {
 
     // send data_1 int
-
-//    printf("sending data_1: %d\n", data_1);
     if (send_int(sockfd, data->data1) == -1) {
         return -1;
     }
 
 
     // send data_2_length
-//    printf("sending data_2_length: %zu\n", size);
     if (send_size(data->data2_len, sockfd) == -1) {
         return -1;
     }
 
     // send data_2
     if (data->data2_len > 0) {
-//        printf("sending data_2\n");
         if (send_void(sockfd, data->data2_len, data->data2) == -1) {
             return -1;
         }
@@ -566,7 +537,6 @@ static int send_int(int sockfd, int data) {
 static int recv_string(size_t size, char *buffer, int sockfd) {
 
     size_t bytes_received = 0;
-//    printf("receiving message\n");
     while (1) {
         ssize_t n = recv(sockfd, buffer + bytes_received, size - bytes_received, 0);
 
@@ -599,7 +569,6 @@ static int recv_size(int sockfd, size_t *size) {
     uint32_t message_size = 0;
 
     size_t bytes_received = 0;
-//    printf("receiving message size\n");
     size_t s_size = sizeof(uint32_t);
     while (1) {
         ssize_t n = recv(sockfd, &message_size + bytes_received, s_size - bytes_received, 0);
@@ -634,14 +603,12 @@ static int recv_data(int sockfd, rpc_data *buffer) {
     if (s <= 0) {
         return s;
     }
-//    printf("received data1: %d\n", buffer->data1);
 
     // receiving data_2 length
     s = recv_size(sockfd, &buffer->data2_len);
     if (s <= 0) {
         return s;
     }
-//    printf("received data2_len: %zu\n", buffer->data2_len);
 
     // receiving data_2
     if (buffer->data2_len > 0) {
@@ -652,10 +619,8 @@ static int recv_data(int sockfd, rpc_data *buffer) {
         if (s <= 0) {
             return s;
         }
-//        if (buffer->data2 != NULL) printf("data is %d\n",  *((int *) buffer->data2));
     } else {
         buffer->data2 = NULL;
-//        printf("no bytes read\n");
     }
 
 
