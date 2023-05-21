@@ -1,9 +1,10 @@
 #include "rpc.h"
+#include "hash_table.h"
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
-#include <assert.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <unistd.h>
@@ -11,7 +12,7 @@
 #include <endian.h>
 #include <time.h>
 #include <pthread.h>
-#include "hash_table.h"
+
 
 // use to change depending on system
 #if defined(htobe64) && !defined(htonll)
@@ -22,10 +23,9 @@
     #define ntohll(x) be64toh(x)
 #endif
 
-
+#define MAX_NAME_LEN 1000
 #define FIND 'f'
 #define CALL 'c'
-#define DEFAULT 'd'
 #define FOUND 'y'
 #define NOT_FOUND 'n'
 #define CONSISTENT 'g'
@@ -69,10 +69,10 @@ static int recv_void(int sockfd, size_t size, void *data);
 static uint32_t hash_djb2(char* str);
 static uint32_t hash_int(uint32_t* num);
 static uint32_t generate_id();
-int intcmp(uint32_t *a, uint32_t *b);
+int int_cmp(uint32_t *a, uint32_t *b);
 static int send_type(int sockfd, char data);
 static int recv_type(int sockfd, char *data);
-void *handle_connection(void *srv);
+static void *handle_connection(void *srv);
 
 
 
@@ -85,7 +85,10 @@ rpc_server *rpc_init_server(int port) {
     char port_str[6];
 
     struct rpc_server *server = malloc(sizeof(*server));
-    assert(server);
+    if (!server) {
+        fprintf(stderr, "Memory allocation error\n");
+        return NULL;
+    }
 
     // convert port to string
     sprintf(port_str, "%d", port);
@@ -152,8 +155,10 @@ rpc_client *rpc_init_client(char *addr, int port) {
     struct addrinfo hints, *servinfo, *p;
     char port_str[6];
     struct rpc_client *client = malloc(sizeof(*client));
-
-    assert(client);
+    if (!client) {
+        fprintf(stderr, "Memory allocation error\n");
+        return NULL;
+    }
 
 
     memset(&hints, 0, sizeof hints);
@@ -198,13 +203,20 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
     }
     struct handler_item *item = malloc(sizeof(*item));
     char *name_cpy = strdup(name);
-    // change these asserts to return -1
-    assert(name_cpy);
-    assert(item);
+    if (!item | !name_cpy) {
+        fprintf(stderr, "Memory allocation error\n");
+        return -1;
+    }
+
     item->handler= handler;
     item->id = generate_id();
     // add error handling here
-    if (insert_data(srv->reg_procedures, name_cpy, (void *) item, (hash_func) hash_djb2, (compare_func) strcmp) == -1) {
+    if (insert_data(srv->reg_procedures, name_cpy, (void *) item, (hash_func) hash_djb2, (compare_func) strcmp,
+                    (free_func) free, NULL) == -1) {
+        free(item);
+        item = NULL;
+        free(name_cpy);
+        name_cpy = NULL;
         return -1;
     }
     return item->id;
@@ -237,18 +249,18 @@ void rpc_serve_all(rpc_server *srv) {
     }
 }
 
-void *handle_connection(void *arg) {
+static void *handle_connection(void *arg) {
     // Retrieve the connection file descriptor from the argument
     rpc_server *srv = (rpc_server *) arg;
     int connectfd = srv->connectfd;
 
     char type;
     size_t size;
-    char name[255];
+    char name[MAX_NAME_LEN + 1];
 
     while(1) {
         // type (either find or call)
-        type = DEFAULT;
+        type = 0;
         if (recv_type(connectfd, &type) == 0) {
             close(connectfd);
             pthread_exit(NULL);
@@ -257,31 +269,30 @@ void *handle_connection(void *arg) {
         switch(type) {
             case FIND:
                 // reads function name size
-                if (recv_size(connectfd, &size) == 0) {
+                if (recv_size(connectfd, &size) == 0
+                    // reads function name
+                    || recv_string(size, name, connectfd) == 0) {
+
                     close(connectfd);
                     pthread_exit(NULL);
-                };
 
-                // reads function name
-                if (recv_string(size, name, connectfd) == 0) {
-                    close(connectfd);
-                    pthread_exit(NULL);
-                };
-                struct handler_item *item = (struct handler_item *) get_data(srv->reg_procedures, name, (hash_func) hash_djb2, (compare_func) strcmp);
+                }
 
+                struct handler_item *item = (struct handler_item *) get_data(srv->reg_procedures, name, (hash_func) hash_djb2,
+                        (compare_func) strcmp);
 
                 if (item) {
-                    if (send_type(connectfd, FOUND) == -1) {
-                        close(connectfd);
-                        pthread_exit(NULL);
-                    }
-                    // send id to client
-                    if (send_int(connectfd, item->id) == -1) {
-                        close(connectfd);
-                        pthread_exit(NULL);
-                    }
+                    if (send_type(connectfd, FOUND) == -1
+                        // send id to client
+                        || send_int(connectfd, item->id) == -1) {
 
-                    if (insert_data(srv->found_procedures, &item->id, (void *) item->handler, (hash_func) hash_int, (compare_func) intcmp) == -1) {
+                        close(connectfd);
+                        pthread_exit(NULL);
+
+                    }
+                    // insert procedure into found hash table
+                    if (insert_data(srv->found_procedures, &item->id, (void *) item->handler, (hash_func) hash_int,
+                                    (compare_func) int_cmp, NULL, NULL) == -1) {
                         fprintf(stderr, "Insertion error");
                     };
 
@@ -297,55 +308,63 @@ void *handle_connection(void *arg) {
 
             case CALL:
                 rpc_data *data = malloc(sizeof(*data));
-                assert(data);
+                if (!data) {
+                    fprintf(stderr, "Memory allocation error\n");
+                    continue;
+                }
                 rpc_data *result;
 
-                uint32_t id = 0;
-                if (recv_int(connectfd, (int *) &id) == 0) {
-                    close(connectfd);
-                    pthread_exit(NULL);
-                }
+                uint32_t id;
+                // receive id from client
+                if (recv_int(connectfd, (int *) &id) == 0
+                    // receive data from client
+                    || recv_data(connectfd, data) == 0) {
 
-                if (recv_data(connectfd, data) == 0) {
                     close(connectfd);
                     pthread_exit(NULL);
+
                 }
-                rpc_handler handler = (rpc_handler) get_data(srv->found_procedures, &id, (hash_func) hash_int, (compare_func) intcmp);
+                // get procedure using procedure id
+                rpc_handler handler = (rpc_handler) get_data(srv->found_procedures, &id, (hash_func) hash_int,
+                                                             (compare_func) int_cmp);
+
                 result = handler(data);
+
                 if (result == NULL) {
                     if (send_type(connectfd, INCONSISTENT) == -1) {
                         close(connectfd);
                         pthread_exit(NULL);
                     }
                     fprintf(stderr, "NULL data\n");
+                    rpc_data_free(data);
                     continue;
+
                 } else if ((result->data2 && !result->data2_len) || (!result->data2 && result->data2_len)) {
                     if (send_type(connectfd, INCONSISTENT) == -1) {
                         close(connectfd);
                         pthread_exit(NULL);
                     }
                     fprintf(stderr, "Inconsistent data\n");
+                    rpc_data_free(data);
                     rpc_data_free(result);
                     continue;
                 }
 
-                if (send_type(connectfd, CONSISTENT) == -1) {
-                    close(connectfd);
-                    pthread_exit(NULL);
-                }
-
                 rpc_data_free(data);
 
-                if (send_data(connectfd, result) == -1) {
+                // notify client that data is consistent
+                if (send_type(connectfd, CONSISTENT) == -1
+                    // send the consistent data
+                    || send_data(connectfd, result) == -1) {
+
                     close(connectfd);
                     pthread_exit(NULL);
+
                 }
 
                 rpc_data_free(result);
 
                 break;
-            case DEFAULT:
-                continue;
         }
 
 
@@ -365,29 +384,29 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
     }
     char found;
     rpc_handle *handle = NULL;
-    if (send_type(cl->sockfd, FIND) == -1) {
-        return NULL;
-    }
 
-    // send function name size to server
-    if (send_size(strlen(name), cl->sockfd) == -1) {
-        return NULL;
-    }
+    // send type of request (find)
+    if (send_type(cl->sockfd, FIND) == -1
+        // send function name size to server
+        || send_size(strlen(name), cl->sockfd) == -1
+        // send function name to server
+        || send_string(name, cl->sockfd) == -1
+        // receive whether procedure was found
+        || recv_type(cl->sockfd, &found) <= 0) {
 
-    // send function name to server
-    if (send_string(name, cl->sockfd) == -1) {
         return NULL;
-    }
 
-    if (recv_type(cl->sockfd, &found) <= 0) {
-        return NULL;
     }
 
     if (found == FOUND) {
         handle = malloc(sizeof(*handle));
-        assert(handle);
+        if (!handle) {
+            fprintf(stderr, "Memory allocation error\n");
+            return NULL;
+        }
         if (recv_int(cl->sockfd, (int *) &handle->id) <= 0) {
             free(handle);
+            handle = NULL;
             return NULL;
         }
     }
@@ -407,36 +426,28 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
         return NULL;
     }
     rpc_data *result = malloc(sizeof(*result));
+    if (!result) {
+        fprintf(stderr, "Memory allocation error\n");
+        return NULL;
+    }
     char status;
-    assert(result);
 
-    if (send_type(cl->sockfd, CALL) == -1) {
+
+    // send type of request
+    if (send_type(cl->sockfd, CALL) == -1
+        // send the procedure id
+        || send_int(cl->sockfd, h->id) == -1
+        // send the payload
+        || send_data(cl->sockfd, payload) == -1
+        // send the consistency of the return data
+        || recv_type(cl->sockfd, &status) <= 0
+        || status == INCONSISTENT
+        // receive the return data if consistent
+        || recv_data(cl->sockfd, result) <= 0) {
+
         return NULL;
+
     }
-
-    // send function id to server
-    if (send_int(cl->sockfd, h->id) == -1) {
-        return NULL;
-    }
-
-    // send rpc_data to server
-    if (send_data(cl->sockfd, payload) == -1) {
-        return NULL;
-    }
-
-    if (recv_type(cl->sockfd, &status) <= 0) {
-        return NULL;
-    }
-
-    if (status == INCONSISTENT) {
-        return NULL;
-    }
-
-    if (recv_data(cl->sockfd, result) <= 0) {
-        return NULL;
-    }
-
-
 
     return result;
 }
@@ -451,15 +462,14 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
 static int send_data(int sockfd, rpc_data *data) {
 
     // send data_1 int
-    if (send_int(sockfd, data->data1) == -1) {
+    if (send_int(sockfd, data->data1) == -1
+        // send data_2_length
+        || send_size(data->data2_len, sockfd) == -1) {
+
         return -1;
+
     }
 
-
-    // send data_2_length
-    if (send_size(data->data2_len, sockfd) == -1) {
-        return -1;
-    }
 
     // send data_2
     if (data->data2_len > 0) {
@@ -613,7 +623,10 @@ static int recv_data(int sockfd, rpc_data *buffer) {
     // receiving data_2
     if (buffer->data2_len > 0) {
         buffer->data2 = malloc(buffer->data2_len);
-        assert(buffer->data2);
+        if (!buffer->data2) {
+            fprintf(stderr, "Memory allocation error\n");
+            return -1;
+        }
 
         s = recv_void(sockfd, buffer->data2_len, buffer->data2);
         if (s <= 0) {
@@ -725,7 +738,7 @@ static uint32_t generate_id() {
     return (uint32_t) curr_time + counter++;
 }
 
-int intcmp(uint32_t *a, uint32_t *b) {
+int int_cmp(uint32_t *a, uint32_t *b) {
     if (*a < *b) {
         return -1;
     } else if (*a > *b) {
@@ -753,5 +766,6 @@ void rpc_data_free(rpc_data *data) {
         free(data->data2);
     }
     free(data);
+    data = NULL;
 }
 

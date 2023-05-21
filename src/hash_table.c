@@ -6,7 +6,6 @@
 
 #include "hash_table.h"
 #include <stdlib.h>
-#include <stdint.h>
 #include <assert.h>
 
 #define TABLE_SIZE 100
@@ -47,7 +46,8 @@ static node_t *create_node(void *key, void *data) {
     return new_node;
 }
 
-int insert_data(hash_table_t *table, void *key, void *data, hash_func hash, compare_func cmp) {
+int insert_data(hash_table_t *table, void *key, void *data, hash_func hash, compare_func cmp, free_func free_key,
+                free_func free_data) {
     uint32_t index = hash(key) % TABLE_SIZE;
 
     node_t *new_node = create_node(key, data);
@@ -60,7 +60,17 @@ int insert_data(hash_table_t *table, void *key, void *data, hash_func hash, comp
         node_t *current = table->buckets[index];
 
         while (current->next != NULL) {
+            // replace the data
             if (cmp(current->key, key) == 0) {
+                // free replaced data (keeps current key)
+                if (free_data != NULL) {
+                    free_data(current->data);
+                    current->data = NULL;
+                }
+                if (free_key != NULL) {
+                    free_key(key);
+                    key = NULL;
+                }
                 current->data = data;
                 table->num_items++;
                 break;
@@ -88,20 +98,28 @@ void *get_data(hash_table_t *table, void *key, hash_func hash, compare_func cmp)
     return NULL; // Key not found
 }
 
-void free_table(hash_table_t *table) {
+void free_table(hash_table_t *table, free_func free_key, free_func free_data) {
     // Iterate through the hash table
     for (int i = 0; i < TABLE_SIZE; i++) {
         node_t *current = table->buckets[i];
 
-        // Free each node in the linked list at the current index
+        // Free each node in the linked list at the current index (only if not NULL)
         while (current) {
             node_t *next = current->next;
+            if (free_data != NULL) {
+                free_data(current->data);
+            }
+            if (free_key != NULL) {
+                free_key(current->key);
+            }
 
             free(current);
+            current = NULL;
             current = next;
         }
     }
 
     free(table);
+    table = NULL;
 }
 

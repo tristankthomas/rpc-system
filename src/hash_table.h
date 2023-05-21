@@ -12,10 +12,12 @@
 typedef struct hash_table hash_table_t;
 typedef uint32_t (*hash_func)(void *);
 typedef int (*compare_func)(void *, void *);
+typedef void (*free_func)(void *);
 
 hash_table_t *create_empty_table();
-int insert_data(hash_table_t *table, void *key, void *data, hash_func hash, compare_func cmp);
+int insert_data(hash_table_t *table, void *key, void *data, hash_func hash, compare_func cmp, free_func free_key,
+                free_func free_data);
 void *get_data(hash_table_t *table, void *key, hash_func hash, compare_func cmp);
-void free_table(hash_table_t *table);
+void free_table(hash_table_t *table, free_func free_key, free_func free_data);
 
 #endif

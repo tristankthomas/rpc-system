@@ -12,16 +12,15 @@ int main(int argc, char *argv[]) {
     }
 
 
-    rpc_handle *handle_nonexist = rpc_find(state, "non-exist");
-    rpc_handle *handle_add0 = rpc_find(state, "bad_null");
-    rpc_handle *handle_add2 = rpc_find(state, "bad_data2_1");
-    rpc_handle *handle_add1 = rpc_find(state, "bad_data1_1");
 
-//    if (handle_add2 == NULL) {
-//        fprintf(stderr, "ERROR: Function add2 does not exist\n");
-//        exit_code = 1;
-//        goto cleanup;
-//    }
+    rpc_handle *handle_add2 = rpc_find(state, "add2");
+
+
+    if (handle_add2 == NULL) {
+        fprintf(stderr, "ERROR: Function add2 does not exist\n");
+        exit_code = 1;
+        goto cleanup;
+    }
 
     for (int i = 0; i < 2; i++) {
         /* Prepare request */
