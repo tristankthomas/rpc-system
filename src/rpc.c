@@ -313,14 +313,14 @@ void *handle_connection(void *arg) {
                 rpc_handler handler = (rpc_handler) get_data(srv->found_procedures, &id, (hash_func) hash_int, (compare_func) intcmp);
                 result = handler(data);
                 if (result == NULL) {
-                    if (send_type(srv->connectfd, INCONSISTENT) == -1) {
+                    if (send_type(connectfd, INCONSISTENT) == -1) {
                         close(connectfd);
                         pthread_exit(NULL);
                     }
                     fprintf(stderr, "NULL data\n");
                     continue;
                 } else if ((result->data2 && !result->data2_len) || (!result->data2 && result->data2_len)) {
-                    if (send_type(srv->connectfd, INCONSISTENT) == -1) {
+                    if (send_type(connectfd, INCONSISTENT) == -1) {
                         close(connectfd);
                         pthread_exit(NULL);
                     }
@@ -329,7 +329,7 @@ void *handle_connection(void *arg) {
                     continue;
                 }
 
-                if (send_type(srv->connectfd, CONSISTENT) == -1) {
+                if (send_type(connectfd, CONSISTENT) == -1) {
                     close(connectfd);
                     pthread_exit(NULL);
                 }
