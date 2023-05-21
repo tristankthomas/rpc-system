@@ -28,6 +28,8 @@
 #define DEFAULT 'd'
 #define FOUND 'y'
 #define NOT_FOUND 'n'
+#define CONSISTENT 'g'
+#define INCONSISTENT 'b'
 
 #define NONBLOCKING
 
@@ -230,7 +232,7 @@ void rpc_serve_all(rpc_server *srv) {
         if (connectfd < 0) {
             fprintf(stderr, "Connection failed\n");
         }
-//        printf("%d\n", count++);
+        printf("%d\n", count++);
 
         // show connection
         // Print ipv4 peer information
@@ -328,13 +330,30 @@ void *handle_connection(void *arg) {
                     close(connectfd);
                     pthread_exit(NULL);
                 }
-
-                result = ((rpc_handler) get_data(srv->found_procedures, &id, (hash_func) hash_int, (compare_func) intcmp))(data);
-                if ((result->data2 && !result->data2_len) || (!result->data2 && result->data2_len)) {
+                rpc_handler handler = (rpc_handler) get_data(srv->found_procedures, &id, (hash_func) hash_int, (compare_func) intcmp);
+                result = handler(data);
+                if (result == NULL) {
+                    if (send_type(srv->connectfd, INCONSISTENT) == -1) {
+                        close(connectfd);
+                        pthread_exit(NULL);
+                    }
+                    fprintf(stderr, "NULL data\n");
+                    continue;
+                } else if ((result->data2 && !result->data2_len) || (!result->data2 && result->data2_len)) {
+                    if (send_type(srv->connectfd, INCONSISTENT) == -1) {
+                        close(connectfd);
+                        pthread_exit(NULL);
+                    }
                     fprintf(stderr, "Inconsistent data\n");
+                    rpc_data_free(result);
+                    continue;
+                }
+
+                if (send_type(srv->connectfd, CONSISTENT) == -1) {
                     close(connectfd);
                     pthread_exit(NULL);
                 }
+
                 rpc_data_free(data);
 //                printf("result is %d\n", result->data1);
 
@@ -411,6 +430,7 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
         return NULL;
     }
     rpc_data *result = malloc(sizeof(*result));
+    char status;
     assert(result);
 
     if (send_type(cl->sockfd, CALL) == -1) {
@@ -426,6 +446,14 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
     // send rpc_data to server
 //    printf("sending data\n");
     if (send_data(cl->sockfd, payload) == -1) {
+        return NULL;
+    }
+
+    if (recv_type(cl->sockfd, &status) <= 0) {
+        return NULL;
+    }
+
+    if (status == INCONSISTENT) {
         return NULL;
     }
 
@@ -580,7 +608,7 @@ static int recv_size(int sockfd, size_t *size) {
             fprintf(stderr, "Network error receiving\n");
             return -1;
         } else if (n == 0) {
-            fprintf(stderr, "Connection lost\n");
+            fprintf(stderr, "Connection lost (line %d)\n", __LINE__);
             return n;
         } else {
             bytes_received += (size_t) n;
@@ -643,7 +671,7 @@ static int recv_void(int sockfd, size_t size, void *data) {
             fprintf(stderr, "Network error\n");
             return -1;
         } else if (n == 0) {
-            fprintf(stderr, "Connection lost\n");
+            fprintf(stderr, "Connection lost (line %d)\n", __LINE__);
             return n;
         } else {
             bytes_received += (size_t) n;
@@ -668,7 +696,7 @@ static int recv_int(int sockfd, int *num) {
             fprintf(stderr, "Network error\n");
             return -1;
         } else if (n == 0) {
-            fprintf(stderr, "Connection lost\n");
+            fprintf(stderr, "Connection lost (line %d)\n", __LINE__);
             return n;
         } else {
             bytes_received += (size_t) n;
