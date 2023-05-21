@@ -56,20 +56,23 @@ int insert_data(hash_table_t *table, void *key, void *data, hash_func hash, comp
     }
     if (table->buckets[index] == NULL) {
         table->buckets[index] = new_node;
-        return 1;
     } else {
         node_t *current = table->buckets[index];
 
         while (current->next != NULL) {
             if (cmp(current->key, key) == 0) {
                 current->data = data;
-                return 1;
+                table->num_items++;
+                break;
             }
             current = current->next;
         }
         current->next = new_node;
     }
+
     table->num_items++;
+    return 1;
+
 }
 
 void *get_data(hash_table_t *table, void *key, hash_func hash, compare_func cmp) {
