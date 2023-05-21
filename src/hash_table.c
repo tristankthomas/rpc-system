@@ -41,27 +41,29 @@ hash_table_t *create_empty_table() {
 
 static node_t *create_node(void *key, void *data) {
     node_t *new_node = malloc(sizeof(*new_node));
-    assert(new_node);
     new_node->key = key;
     new_node->data = data;
     new_node->next = NULL;
     return new_node;
 }
 
-void insert_data(hash_table_t *table, void *key, void *data, hash_func hash, compare_func cmp) {
+int insert_data(hash_table_t *table, void *key, void *data, hash_func hash, compare_func cmp) {
     uint32_t index = hash(key) % TABLE_SIZE;
 
     node_t *new_node = create_node(key, data);
-
+    if (new_node == NULL) {
+        return -1;
+    }
     if (table->buckets[index] == NULL) {
         table->buckets[index] = new_node;
+        return 1;
     } else {
         node_t *current = table->buckets[index];
 
         while (current->next != NULL) {
             if (cmp(current->key, key) == 0) {
                 current->data = data;
-                return;
+                return 1;
             }
             current = current->next;
         }

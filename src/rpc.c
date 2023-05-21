@@ -203,7 +203,9 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
     item->handler= handler;
     item->id = generate_id();
     // add error handling here
-    insert_data(srv->reg_procedures, name_cpy, (void *) item, (hash_func) hash_djb2, (compare_func) strcmp);
+    if (insert_data(srv->reg_procedures, name_cpy, (void *) item, (hash_func) hash_djb2, (compare_func) strcmp) == -1) {
+        return -1;
+    }
 //    printf("%s function registered\n", name_cpy);
     return item->id;
 
@@ -280,6 +282,7 @@ void *handle_connection(void *arg) {
                 };
 //                printf("Here is the function name: %s\n", name);
                 struct handler_item *item = (struct handler_item *) get_data(srv->reg_procedures, name, (hash_func) hash_djb2, (compare_func) strcmp);
+
 //                printf("function found: sending id to client\n");
 
                 if (item) {
@@ -293,15 +296,17 @@ void *handle_connection(void *arg) {
                         pthread_exit(NULL);
                     }
 
+                    if (insert_data(srv->found_procedures, &item->id, (void *) item->handler, (hash_func) hash_int, (compare_func) intcmp) == -1) {
+                        fprintf(stderr, "Insertion error");
+                    };
+
                 } else {
+                    fprintf(stderr, "Handler not found\n");
                     if (send_type(connectfd, NOT_FOUND) == -1) {
                         close(connectfd);
                         pthread_exit(NULL);
                     }
-                    continue;
                 }
-
-                insert_data(srv->found_procedures, &item->id, (void *) item->handler, (hash_func) hash_int, (compare_func) intcmp);
 
                 break;
 
