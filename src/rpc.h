@@ -1,5 +1,5 @@
 /*
- * rpc.c - Contains the API for the RPC system
+ * rpc.h - Contains the API for the RPC system
  * Author: Tristan Thomas
  * Date: 1-5-2023
  */

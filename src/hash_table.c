@@ -34,6 +34,7 @@ hash_table_t *create_empty_table() {
     assert(table);
     table->num_items = 0;
 
+    // initialises hash table
     for (int i = 0; i < TABLE_SIZE; i++) {
         table->buckets[i] = NULL;
     }
@@ -49,6 +50,7 @@ hash_table_t *create_empty_table() {
  * @return
  */
 static node_t *create_node(void *key, void *data) {
+
     node_t *new_node = malloc(sizeof(*new_node));
     new_node->key = key;
     new_node->data = data;
@@ -70,12 +72,15 @@ static node_t *create_node(void *key, void *data) {
  */
 int insert_data(hash_table_t *table, void *key, void *data, hash_func hash, compare_func cmp, free_func free_key,
                 free_func free_data) {
+
     uint32_t index = hash(key) % TABLE_SIZE;
 
     node_t *new_node = create_node(key, data);
     if (new_node == NULL) {
         return -1;
     }
+
+    // checks for collisions
     if (table->buckets[index] == NULL) {
         table->buckets[index] = new_node;
     } else {
@@ -117,6 +122,7 @@ int insert_data(hash_table_t *table, void *key, void *data, hash_func hash, comp
  * @return Data stored in hash-table
  */
 void *get_data(hash_table_t *table, void *key, hash_func hash, compare_func cmp) {
+
     uint32_t index = hash(key) % TABLE_SIZE;
 
     node_t *current = table->buckets[index];
@@ -126,7 +132,8 @@ void *get_data(hash_table_t *table, void *key, hash_func hash, compare_func cmp)
         }
         current = current->next;
     }
-    return NULL; // Key not found
+    // key not found
+    return NULL;
 }
 
 /**
@@ -137,6 +144,7 @@ void *get_data(hash_table_t *table, void *key, hash_func hash, compare_func cmp)
  * @param free_data Data freeing function
  */
 void free_table(hash_table_t *table, free_func free_key, free_func free_data) {
+
     // Iterate through the hash table
     for (int i = 0; i < TABLE_SIZE; i++) {
         node_t *current = table->buckets[i];
