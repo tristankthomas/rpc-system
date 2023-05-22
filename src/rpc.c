@@ -14,7 +14,6 @@
 #include <pthread.h>
 
 
-// use to change depending on system
 #if defined(htobe64) && !defined(htonll)
     #define htonll(x) htobe64(x)
 #endif
@@ -24,6 +23,8 @@
 #endif
 
 #define MAX_NAME_LEN 1000
+#define NUM_ERROR_MESSAGES 11
+
 #define FIND 'f'
 #define CALL 'c'
 #define FOUND 'y'
@@ -53,6 +54,34 @@ struct handler_item {
     uint32_t id;
 };
 
+const char *error_messages[NUM_ERROR_MESSAGES] = {
+        "Inconsistent data",
+        "Memory allocation failed",
+        "Invalid arguments",
+        "Handler not found",
+        "Socket creation failed",
+        "Address info failure",
+        "Connection lost",
+        "Network failure",
+        "Overlength",
+        "Insertion failed",
+        "Thread failed"
+};
+
+enum error_codes {
+    INCONSISTENT_DATA = 1,
+    MEMORY_ALL0CATION,
+    INVALID_ARGUMENTS,
+    HANDLER_NOT_FOUND,
+    SOCKET_CREATION,
+    ADDRESS_INFO,
+    CONNECTION_LOST,
+    NETWORK_FAIL,
+    OVERLENGTH,
+    INSERTION,
+    THREAD
+};
+
 
 
 
@@ -73,6 +102,7 @@ int int_cmp(uint32_t *a, uint32_t *b);
 static int send_type(int sockfd, char data);
 static int recv_type(int sockfd, char *data);
 static void *handle_connection(void *srv);
+static void error_print(enum error_codes code);
 
 
 
@@ -85,8 +115,9 @@ rpc_server *rpc_init_server(int port) {
     char port_str[6];
 
     struct rpc_server *server = malloc(sizeof(*server));
+
     if (!server) {
-        fprintf(stderr, "Memory allocation error\n");
+        error_print(MEMORY_ALL0CATION);
         return NULL;
     }
 
@@ -99,7 +130,7 @@ rpc_server *rpc_init_server(int port) {
     hints.ai_flags = AI_PASSIVE;
     s = getaddrinfo(NULL, port_str, &hints, &res);
     if (s != 0) {
-        fprintf(stderr, "Address info failure\n");
+        error_print(ADDRESS_INFO);
         return NULL;
     }
 
@@ -114,25 +145,25 @@ rpc_server *rpc_init_server(int port) {
     }
 
     if (listenfd < 0) {
-        fprintf(stderr, "Failed to create socket\n");
+        error_print(SOCKET_CREATION);
         return NULL;
     }
 
 
     if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
-        fprintf(stderr, "Failed to set options\n");
+        error_print(SOCKET_CREATION);
         return NULL;
     }
 
     // bind
     if (bind(listenfd, res->ai_addr, res->ai_addrlen) < 0) {
-        fprintf(stderr, "Failed to bind\n");
+        error_print(SOCKET_CREATION);
         return NULL;
     }
 
     // listen (blocking)
     if (listen(listenfd, 5) < 0) {
-        fprintf(stderr, "Failed to listen\n");
+        error_print(SOCKET_CREATION);
         return NULL;
     }
 
@@ -156,7 +187,7 @@ rpc_client *rpc_init_client(char *addr, int port) {
     char port_str[6];
     struct rpc_client *client = malloc(sizeof(*client));
     if (!client) {
-        fprintf(stderr, "Memory allocation error\n");
+        error_print(MEMORY_ALL0CATION);
         return NULL;
     }
 
@@ -168,7 +199,7 @@ rpc_client *rpc_init_client(char *addr, int port) {
     sprintf(port_str, "%d", port);
     s = getaddrinfo(addr, port_str, &hints, &servinfo);
     if (s != 0) {
-        fprintf(stderr, "Address info failure\n");
+        error_print(ADDRESS_INFO);
         return NULL;
     }
     // connect to the server
@@ -184,7 +215,7 @@ rpc_client *rpc_init_client(char *addr, int port) {
     }
 
     if (p == NULL) {
-        fprintf(stderr, "Failed to connect to server\n");
+        error_print(NETWORK_FAIL);
         return NULL;
     }
     // assign to client
@@ -198,13 +229,13 @@ rpc_client *rpc_init_client(char *addr, int port) {
 
 int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
     if (srv == NULL || name == NULL || handler == NULL) {
-        fprintf(stderr, "Invalid arguments\n");
+        error_print(INVALID_ARGUMENTS);
         return -1;
     }
     struct handler_item *item = malloc(sizeof(*item));
     char *name_cpy = strdup(name);
     if (!item | !name_cpy) {
-        fprintf(stderr, "Memory allocation error\n");
+        error_print(MEMORY_ALL0CATION);
         return -1;
     }
 
@@ -225,7 +256,7 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
 
 void rpc_serve_all(rpc_server *srv) {
     if (srv == NULL) {
-        fprintf(stderr, "Invalid arguments\n");
+        error_print(INVALID_ARGUMENTS);
         exit(EXIT_FAILURE);
     }
     // make connection
@@ -236,14 +267,14 @@ void rpc_serve_all(rpc_server *srv) {
         // accept connection from client (takes from listen queue)
         int connectfd = accept(srv->listenfd, (struct sockaddr *) &client_addr, &client_addr_size);
         if (connectfd < 0) {
-            fprintf(stderr, "Connection failed\n");
+            error_print(NETWORK_FAIL);
         }
 
         srv->connectfd = connectfd;
         // Create a new thread for each accepted connection
         pthread_t thread;
         if (pthread_create(&thread, NULL, handle_connection, srv) != 0) {
-            fprintf(stderr, "Thread failed\n");
+            error_print(THREAD);
             close(connectfd);
         }
     }
@@ -293,11 +324,11 @@ static void *handle_connection(void *arg) {
                     // insert procedure into found hash table
                     if (insert_data(srv->found_procedures, &item->id, (void *) item->handler, (hash_func) hash_int,
                                     (compare_func) int_cmp, NULL, NULL) == -1) {
-                        fprintf(stderr, "Insertion error");
+                        error_print(INSERTION);
                     };
 
                 } else {
-                    fprintf(stderr, "Handler not found\n");
+                    error_print(HANDLER_NOT_FOUND);
                     if (send_type(connectfd, NOT_FOUND) == -1) {
                         close(connectfd);
                         pthread_exit(NULL);
@@ -309,7 +340,7 @@ static void *handle_connection(void *arg) {
             case CALL:
                 rpc_data *data = malloc(sizeof(*data));
                 if (!data) {
-                    fprintf(stderr, "Memory allocation error\n");
+                    error_print(MEMORY_ALL0CATION);
                     continue;
                 }
                 rpc_data *result;
@@ -335,7 +366,7 @@ static void *handle_connection(void *arg) {
                         close(connectfd);
                         pthread_exit(NULL);
                     }
-                    fprintf(stderr, "NULL data\n");
+                    error_print(INCONSISTENT_DATA);
                     rpc_data_free(data);
                     continue;
 
@@ -344,7 +375,7 @@ static void *handle_connection(void *arg) {
                         close(connectfd);
                         pthread_exit(NULL);
                     }
-                    fprintf(stderr, "Inconsistent data\n");
+                    error_print(INCONSISTENT_DATA);
                     rpc_data_free(data);
                     rpc_data_free(result);
                     continue;
@@ -379,7 +410,7 @@ static void *handle_connection(void *arg) {
 
 rpc_handle *rpc_find(rpc_client *cl, char *name) {
     if (cl == NULL || name == NULL) {
-        fprintf(stderr, "Invalid arguments\n");
+        error_print(INVALID_ARGUMENTS);
         return NULL;
     }
     char found;
@@ -401,7 +432,7 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
     if (found == FOUND) {
         handle = malloc(sizeof(*handle));
         if (!handle) {
-            fprintf(stderr, "Memory allocation error\n");
+            error_print(MEMORY_ALL0CATION);
             return NULL;
         }
         if (recv_int(cl->sockfd, (int *) &handle->id) <= 0) {
@@ -417,17 +448,17 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
 
 rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
     if (cl == NULL || h == NULL || payload == NULL) {
-        fprintf(stderr, "Invalid arguments\n");
+        error_print(INVALID_ARGUMENTS);
         return NULL;
     }
 
     if ((payload->data2 && !payload->data2_len) || (!payload->data2 && payload->data2_len)) {
-        fprintf(stderr, "Inconsistent data\n");
+        error_print(INCONSISTENT_DATA);
         return NULL;
     }
     rpc_data *result = malloc(sizeof(*result));
     if (!result) {
-        fprintf(stderr, "Memory allocation error\n");
+        error_print(MEMORY_ALL0CATION);
         return NULL;
     }
     char status;
@@ -487,7 +518,7 @@ static int send_void(int sockfd, size_t size, void *data) {
 
     ssize_t n = send(sockfd, data, size, 0);
     if (n < 0) {
-        fprintf(stderr, "Network error sending\n");
+        error_print(NETWORK_FAIL);
         return -1;
     }
 
@@ -500,7 +531,7 @@ static int send_string(char *message, int sockfd) {
     // Send message
     int n = send(sockfd, message, strlen(message), 0);
     if (n < 0) {
-        fprintf(stderr, "Network error sending\n");
+        error_print(NETWORK_FAIL);
         return -1;
     }
 
@@ -511,14 +542,14 @@ static int send_size(size_t size, int sockfd) {
 
     // use 4 bytes since 100000 fits
     if (size > UINT32_MAX) {
-        fprintf(stderr, "Overlength error\n");
+        error_print(OVERLENGTH);
         return -1;
     }
     uint32_t size_n = htonl((uint32_t) size);
 
     ssize_t n = send(sockfd, &size_n, sizeof(size_n), 0);
     if (n < 0) {
-        fprintf(stderr, "Network error sending\n");
+        error_print(NETWORK_FAIL);
         return -1;
     }
 
@@ -527,13 +558,13 @@ static int send_size(size_t size, int sockfd) {
 
 static int send_int(int sockfd, int data) {
     if (data <= INT64_MIN || data >= INT64_MAX) {
-        fprintf(stderr, "Overlength error\n");
+        error_print(OVERLENGTH);
         return -1;
     }
     uint64_t data_n = (uint64_t) htonll(data);
     ssize_t n = send(sockfd, &data_n, sizeof(data_n), 0);
     if (n < 0) {
-        fprintf(stderr, "Network error sending\n");
+        error_print(NETWORK_FAIL);
         return -1;
     }
 
@@ -551,10 +582,10 @@ static int recv_string(size_t size, char *buffer, int sockfd) {
         ssize_t n = recv(sockfd, buffer + bytes_received, size - bytes_received, 0);
 
         if (n < 0) {
-            fprintf(stderr, "Network error receiving\n");
+            error_print(NETWORK_FAIL);
             return -1;
         } else if (n == 0) {
-            fprintf(stderr, "Connection lost\n");
+            error_print(CONNECTION_LOST);
             return n;
         } else {
             bytes_received += (size_t) n;
@@ -584,10 +615,10 @@ static int recv_size(int sockfd, size_t *size) {
         ssize_t n = recv(sockfd, &message_size + bytes_received, s_size - bytes_received, 0);
 
         if (n < 0) {
-            fprintf(stderr, "Network error receiving\n");
+            error_print(NETWORK_FAIL);
             return -1;
         } else if (n == 0) {
-            fprintf(stderr, "Connection lost (line %d)\n", __LINE__);
+            error_print(CONNECTION_LOST);
             return n;
         } else {
             bytes_received += (size_t) n;
@@ -624,7 +655,7 @@ static int recv_data(int sockfd, rpc_data *buffer) {
     if (buffer->data2_len > 0) {
         buffer->data2 = malloc(buffer->data2_len);
         if (!buffer->data2) {
-            fprintf(stderr, "Memory allocation error\n");
+            error_print(MEMORY_ALL0CATION);
             return -1;
         }
 
@@ -646,10 +677,10 @@ static int recv_void(int sockfd, size_t size, void *data) {
     while(1) {
         ssize_t n = recv(sockfd, data + bytes_received, size - bytes_received, 0);
         if (n < 0) {
-            fprintf(stderr, "Network error\n");
+            error_print(NETWORK_FAIL);
             return -1;
         } else if (n == 0) {
-            fprintf(stderr, "Connection lost (line %d)\n", __LINE__);
+            error_print(CONNECTION_LOST);
             return n;
         } else {
             bytes_received += (size_t) n;
@@ -671,10 +702,10 @@ static int recv_int(int sockfd, int *num) {
         ssize_t n = recv(sockfd, &data + bytes_received, int64_size - bytes_received, 0);
 
         if (n < 0) {
-            fprintf(stderr, "Network error\n");
+            error_print(NETWORK_FAIL);
             return -1;
         } else if (n == 0) {
-            fprintf(stderr, "Connection lost (line %d)\n", __LINE__);
+            error_print(CONNECTION_LOST);
             return n;
         } else {
             bytes_received += (size_t) n;
@@ -697,7 +728,7 @@ static int recv_type(int sockfd, char *data) {
     ssize_t n = recv(sockfd, data, sizeof(*data), 0);
 
     if (n < 0) {
-        fprintf(stderr, "Network error\n");
+        error_print(NETWORK_FAIL);
         return -1;
     } else if (n == 0) {
         return n;
@@ -710,7 +741,7 @@ static int send_type(int sockfd, char data) {
 
     ssize_t n = send(sockfd, &data, sizeof(data), 0);
     if (n < 0) {
-        fprintf(stderr, "Network error\n");
+        error_print(NETWORK_FAIL);
         return -1;
     }
 
@@ -756,6 +787,10 @@ void rpc_close_client(rpc_client *cl) {
         cl = NULL;
     }
 
+}
+
+static void error_print(enum error_codes code) {
+    fprintf(stderr, "Error: %s\n", error_messages[code]);
 }
 
 void rpc_data_free(rpc_data *data) {

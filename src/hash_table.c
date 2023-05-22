@@ -11,7 +11,6 @@
 #define TABLE_SIZE 100
 
 
-
 typedef struct node {
     void *key;
     void *data;
