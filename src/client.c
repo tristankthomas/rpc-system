@@ -14,6 +14,8 @@ int main(int argc, char *argv[]) {
 
 
     rpc_handle *handle_add2 = rpc_find(state, "add2");
+    rpc_handle *handle_add3 = rpc_find(state, "bad_null");
+    rpc_handle *handle_add4 = rpc_find(state, "bad_unll");
 
 
     if (handle_add2 == NULL) {
@@ -25,12 +27,14 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < 2; i++) {
         /* Prepare request */
         char left_operand = i;
-        char right_operand = 100;
+        char right_operand = -100;
         rpc_data request_data = {
             .data1 = left_operand, .data2_len = 1, .data2 = &right_operand};
 
         /* Call and receive response */
         rpc_data *response_data = rpc_call(state, handle_add2, &request_data);
+        rpc_call(state, handle_add3, &request_data);
+        rpc_call(state, handle_add4, &request_data);
         if (response_data == NULL) {
             fprintf(stderr, "Function call of add2 failed\n");
             exit_code = 1;

@@ -18,7 +18,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    if (rpc_register(state, "bad_data2_1", add2_i8) == -1) {
+    if (rpc_register(state, "bad_unll", add2_i8) == -1) {
         fprintf(stderr, "Failed to register add2\n");
         exit(EXIT_FAILURE);
     }

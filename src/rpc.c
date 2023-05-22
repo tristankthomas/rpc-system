@@ -23,7 +23,7 @@
 #endif
 
 #define MAX_NAME_LEN 1000
-#define NUM_ERROR_MESSAGES 11
+#define NUM_ERROR_MESSAGES 12
 
 #define FIND 'f'
 #define CALL 'c'
@@ -65,7 +65,8 @@ const char *error_messages[NUM_ERROR_MESSAGES] = {
         "Network failure",
         "Overlength",
         "Insertion failed",
-        "Thread failed"
+        "Thread failed",
+        "Invalid procedure name"
 };
 
 enum error_codes {
@@ -79,7 +80,8 @@ enum error_codes {
     NETWORK_FAIL,
     OVERLENGTH,
     INSERTION,
-    THREAD
+    THREAD,
+    INVALID_NAME
 };
 
 
@@ -103,6 +105,8 @@ static int send_type(int sockfd, char data);
 static int recv_type(int sockfd, char *data);
 static void *handle_connection(void *srv);
 static void error_print(enum error_codes code);
+static int is_valid_char(char c);
+static int is_valid_name(char *name);
 
 
 
@@ -230,6 +234,9 @@ rpc_client *rpc_init_client(char *addr, int port) {
 int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
     if (srv == NULL || name == NULL || handler == NULL) {
         error_print(INVALID_ARGUMENTS);
+        return -1;
+    } else if (!is_valid_name(name)) {
+        error_print(INVALID_NAME);
         return -1;
     }
     struct handler_item *item = malloc(sizeof(*item));
@@ -412,7 +419,11 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
     if (cl == NULL || name == NULL) {
         error_print(INVALID_ARGUMENTS);
         return NULL;
+    } else if (!is_valid_name(name)) {
+        error_print(INVALID_NAME);
+        return NULL;
     }
+
     char found;
     rpc_handle *handle = NULL;
 
@@ -611,6 +622,7 @@ static int recv_size(int sockfd, size_t *size) {
 
     size_t bytes_received = 0;
     size_t s_size = sizeof(uint32_t);
+    uint32_t host_size;
     while (1) {
         ssize_t n = recv(sockfd, &message_size + bytes_received, s_size - bytes_received, 0);
 
@@ -629,9 +641,14 @@ static int recv_size(int sockfd, size_t *size) {
 
     }
 
-    message_size = ntohl(message_size);
+    // check if the valid received 32-bit data will fit within the size_t size of this host
+    host_size = ntohl(message_size);
+    if (host_size > SIZE_MAX) {
+        error_print(OVERLENGTH);
+        return -1;
+    }
 
-    *size = (size_t) message_size;
+    *size = (size_t) host_size;
 
     return bytes_received;
 
@@ -698,6 +715,7 @@ static int recv_int(int sockfd, int *num) {
     size_t bytes_received = 0;
     size_t int64_size = sizeof(uint64_t);
     uint64_t data;
+    uint64_t host_data;
     while (1) {
         ssize_t n = recv(sockfd, &data + bytes_received, int64_size - bytes_received, 0);
 
@@ -715,10 +733,14 @@ static int recv_int(int sockfd, int *num) {
         }
 
     }
-    // need to check if the received 64-bit data (we know it is valid!) will fit within the int size of this host
-    // (could check by going : if ((INT64_t) data > INT_MAX || (INT64_t) data < INT_MIN) return overlength error)
+    // check if the valid received 64-bit data will fit within the int size of this host
+    host_data = ntohll(data);
+    if ((int64_t) host_data > INT_MAX || (int64_t) host_data < INT_MIN) {
+        error_print(OVERLENGTH);
+        return -1;
+    }
 
-    *num = (int) ntohll(data);
+    *num = (int) host_data;
 
     return bytes_received;
 }
@@ -802,5 +824,20 @@ void rpc_data_free(rpc_data *data) {
     }
     free(data);
     data = NULL;
+}
+
+static int is_valid_char(char c) {
+    return (c >= 32 && c <= 126);
+}
+
+static int is_valid_name(char *name) {
+
+    for (int i = 0; name[i] != '\0'; i++) {
+        // Check if the character is valid
+        if (!is_valid_char(name[i])) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
