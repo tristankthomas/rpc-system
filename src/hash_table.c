@@ -24,7 +24,11 @@ struct hash_table {
 
 static node_t *create_node(void *key, void *data);
 
-
+/**
+ * Creates an empty hash table
+ *
+ * @return Newly created hash table
+ */
 hash_table_t *create_empty_table() {
     hash_table_t *table = malloc(sizeof(*table));
     assert(table);
@@ -37,6 +41,13 @@ hash_table_t *create_empty_table() {
     return table;
 }
 
+/**
+ * Creates a hash table node
+ *
+ * @param key Key for hash table element
+ * @param data Data to be added to element
+ * @return
+ */
 static node_t *create_node(void *key, void *data) {
     node_t *new_node = malloc(sizeof(*new_node));
     new_node->key = key;
@@ -45,6 +56,18 @@ static node_t *create_node(void *key, void *data) {
     return new_node;
 }
 
+/**
+ * Inserts data into a given hash-table
+ *
+ * @param table Table to be inserted into
+ * @param key Key of new element
+ * @param data Data of new element
+ * @param hash Hash function
+ * @param cmp Comparison function
+ * @param free_key Free key function
+ * @param free_data Free data function
+ * @return 1 on success
+ */
 int insert_data(hash_table_t *table, void *key, void *data, hash_func hash, compare_func cmp, free_func free_key,
                 free_func free_data) {
     uint32_t index = hash(key) % TABLE_SIZE;
@@ -84,6 +107,15 @@ int insert_data(hash_table_t *table, void *key, void *data, hash_func hash, comp
 
 }
 
+/**
+ * Gets data from a given hash-table
+ *
+ * @param table Table to be searched
+ * @param key Key of desired element
+ * @param hash Hash function used for able
+ * @param cmp Comparison function used for table
+ * @return Data stored in hash-table
+ */
 void *get_data(hash_table_t *table, void *key, hash_func hash, compare_func cmp) {
     uint32_t index = hash(key) % TABLE_SIZE;
 
@@ -97,6 +129,13 @@ void *get_data(hash_table_t *table, void *key, hash_func hash, compare_func cmp)
     return NULL; // Key not found
 }
 
+/**
+ * Frees a given hash-table
+ *
+ * @param table Hash-table to be freed
+ * @param free_key Key freeing function
+ * @param free_data Data freeing function
+ */
 void free_table(hash_table_t *table, free_func free_key, free_func free_data) {
     // Iterate through the hash table
     for (int i = 0; i < TABLE_SIZE; i++) {

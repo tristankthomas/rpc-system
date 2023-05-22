@@ -101,8 +101,8 @@ static uint32_t hash_djb2(char* str);
 static uint32_t hash_int(uint32_t* num);
 static uint32_t generate_id();
 int int_cmp(uint32_t *a, uint32_t *b);
-static int send_type(int sockfd, char data);
-static int recv_type(int sockfd, char *data);
+static int send_flag(int sockfd, char data);
+static int recv_flag(int sockfd, char *data);
 static void *handle_connection(void *srv);
 static void error_print(enum error_codes code);
 static int is_valid_char(char c);
@@ -110,7 +110,12 @@ static int is_valid_name(char *name);
 
 
 
-
+/**
+ * Initialises data used for the server and creates listening socket
+ *
+ * @param port Port number
+ * @return Rpc server data
+ */
 rpc_server *rpc_init_server(int port) {
 
     int enable = 1, s, listenfd;
@@ -184,8 +189,15 @@ rpc_server *rpc_init_server(int port) {
     return server;
 }
 
-
+/**
+ * Initialises data used for the client
+ *
+ * @param addr Address of the server
+ * @param port Port number
+ * @return Rpc client data
+ */
 rpc_client *rpc_init_client(char *addr, int port) {
+
     int connectfd, s;
     struct addrinfo hints, *servinfo, *p;
     char port_str[6];
@@ -194,7 +206,6 @@ rpc_client *rpc_init_client(char *addr, int port) {
         error_print(MEMORY_ALL0CATION);
         return NULL;
     }
-
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_INET6;
@@ -227,10 +238,17 @@ rpc_client *rpc_init_client(char *addr, int port) {
 
     freeaddrinfo(servinfo);
 
-
     return client;
 }
 
+/**
+ * Registers a procedure to the server by name
+ *
+ * @param srv Server struct
+ * @param name Name procedure
+ * @param handler Actual procedure
+ * @return Procedure ID on success
+ */
 int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
     if (srv == NULL || name == NULL || handler == NULL) {
         error_print(INVALID_ARGUMENTS);
@@ -261,6 +279,11 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
 
 }
 
+/**
+ * Accepts new connections from clients and completes requests
+ *
+ * @param srv Server data
+ */
 void rpc_serve_all(rpc_server *srv) {
     if (srv == NULL) {
         error_print(INVALID_ARGUMENTS);
@@ -278,7 +301,7 @@ void rpc_serve_all(rpc_server *srv) {
         }
 
         srv->connectfd = connectfd;
-        // Create a new thread for each accepted connection
+        // creates new thread for each connection
         pthread_t thread;
         if (pthread_create(&thread, NULL, handle_connection, srv) != 0) {
             error_print(THREAD);
@@ -287,6 +310,12 @@ void rpc_serve_all(rpc_server *srv) {
     }
 }
 
+/**
+ * Handles rpc_find and call requests from a specific client
+ *
+ * @param arg Server data containing the connection socket
+ * @return NULL on exit thread
+ */
 static void *handle_connection(void *arg) {
     // Retrieve the connection file descriptor from the argument
     rpc_server *srv = (rpc_server *) arg;
@@ -299,7 +328,7 @@ static void *handle_connection(void *arg) {
     while(1) {
         // type (either find or call)
         type = 0;
-        if (recv_type(connectfd, &type) == 0) {
+        if (recv_flag(connectfd, &type) == 0) {
             close(connectfd);
             pthread_exit(NULL);
         };
@@ -320,7 +349,7 @@ static void *handle_connection(void *arg) {
                         (compare_func) strcmp);
 
                 if (item) {
-                    if (send_type(connectfd, FOUND) == -1
+                    if (send_flag(connectfd, FOUND) == -1
                         // send id to client
                         || send_int(connectfd, item->id) == -1) {
 
@@ -336,7 +365,7 @@ static void *handle_connection(void *arg) {
 
                 } else {
                     error_print(HANDLER_NOT_FOUND);
-                    if (send_type(connectfd, NOT_FOUND) == -1) {
+                    if (send_flag(connectfd, NOT_FOUND) == -1) {
                         close(connectfd);
                         pthread_exit(NULL);
                     }
@@ -369,7 +398,7 @@ static void *handle_connection(void *arg) {
                 result = handler(data);
 
                 if (result == NULL) {
-                    if (send_type(connectfd, INCONSISTENT) == -1) {
+                    if (send_flag(connectfd, INCONSISTENT) == -1) {
                         close(connectfd);
                         pthread_exit(NULL);
                     }
@@ -378,7 +407,7 @@ static void *handle_connection(void *arg) {
                     continue;
 
                 } else if ((result->data2 && !result->data2_len) || (!result->data2 && result->data2_len)) {
-                    if (send_type(connectfd, INCONSISTENT) == -1) {
+                    if (send_flag(connectfd, INCONSISTENT) == -1) {
                         close(connectfd);
                         pthread_exit(NULL);
                     }
@@ -391,7 +420,7 @@ static void *handle_connection(void *arg) {
                 rpc_data_free(data);
 
                 // notify client that data is consistent
-                if (send_type(connectfd, CONSISTENT) == -1
+                if (send_flag(connectfd, CONSISTENT) == -1
                     // send the consistent data
                     || send_data(connectfd, result) == -1) {
 
@@ -413,9 +442,15 @@ static void *handle_connection(void *arg) {
 
 
 
-
-
+/**
+ * Finds a procedure on the server given a name
+ *
+ * @param cl Client data
+ * @param name Query name
+ * @return A handle containing the unique procedure ID upon success, NULL on failure
+ */
 rpc_handle *rpc_find(rpc_client *cl, char *name) {
+
     if (cl == NULL || name == NULL) {
         error_print(INVALID_ARGUMENTS);
         return NULL;
@@ -428,13 +463,13 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
     rpc_handle *handle = NULL;
 
     // send type of request (find)
-    if (send_type(cl->sockfd, FIND) == -1
+    if (send_flag(cl->sockfd, FIND) == -1
         // send function name size to server
         || send_size(strlen(name), cl->sockfd) == -1
         // send function name to server
         || send_string(name, cl->sockfd) == -1
         // receive whether procedure was found
-        || recv_type(cl->sockfd, &found) <= 0) {
+        || recv_flag(cl->sockfd, &found) <= 0) {
 
         return NULL;
 
@@ -456,7 +491,14 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
     return handle;
 }
 
-
+/**
+ * Calls a given procedure from the server given an ID
+ *
+ * @param cl Client data
+ * @param h Handle containing ID
+ * @param payload Data to be send to server
+ * @return Output data from the procedure on success, NULL on failure
+ */
 rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
     if (cl == NULL || h == NULL || payload == NULL) {
         error_print(INVALID_ARGUMENTS);
@@ -476,13 +518,13 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
 
 
     // send type of request
-    if (send_type(cl->sockfd, CALL) == -1
+    if (send_flag(cl->sockfd, CALL) == -1
         // send the procedure id
         || send_int(cl->sockfd, h->id) == -1
         // send the payload
         || send_data(cl->sockfd, payload) == -1
         // send the consistency of the return data
-        || recv_type(cl->sockfd, &status) <= 0
+        || recv_flag(cl->sockfd, &status) <= 0
         || status == INCONSISTENT
         // receive the return data if consistent
         || recv_data(cl->sockfd, result) <= 0) {
@@ -495,12 +537,13 @@ rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
 }
 
 
-
-
-
-
-// sending functions
-
+/**
+ * Sends data to a host
+ *
+ * @param sockfd Socket to be sent over
+ * @param data Data to be sent
+ * @return 0 on success
+ */
 static int send_data(int sockfd, rpc_data *data) {
 
     // send data_1 int
@@ -525,6 +568,14 @@ static int send_data(int sockfd, rpc_data *data) {
 
 }
 
+/**
+ * Sends the void data to a host
+ *
+ * @param sockfd Socket to be sent over
+ * @param size Size of data to be sent
+ * @param data Data to be sent
+ * @return Number of byte read on success
+ */
 static int send_void(int sockfd, size_t size, void *data) {
 
     ssize_t n = send(sockfd, data, size, 0);
@@ -537,6 +588,13 @@ static int send_void(int sockfd, size_t size, void *data) {
 
 }
 
+/**
+ * Sends a string over the network
+ *
+ * @param message String to be sent
+ * @param sockfd Socket to be sent over
+ * @return Number of bytes read on success
+ */
 static int send_string(char *message, int sockfd) {
 
     // Send message
@@ -549,6 +607,13 @@ static int send_string(char *message, int sockfd) {
     return n;
 }
 
+/**
+ * Sends size_t data to a host
+ *
+ * @param size Data to be sent
+ * @param sockfd Socket to be sent over
+ * @return Number of bytes sent on success
+ */
 static int send_size(size_t size, int sockfd) {
 
     // use 4 bytes since 100000 fits
@@ -567,6 +632,12 @@ static int send_size(size_t size, int sockfd) {
     return n;
 }
 
+/**
+ *
+ * @param sockfd
+ * @param data
+ * @return
+ */
 static int send_int(int sockfd, int data) {
     if (data <= INT64_MIN || data >= INT64_MAX) {
         error_print(OVERLENGTH);
@@ -584,8 +655,14 @@ static int send_int(int sockfd, int data) {
 
 
 
-
-// receiving functios
+/**
+ * Receives a string from a host given its size
+ *
+ * @param size Size of string
+ * @param buffer Buffer to store read string
+ * @param sockfd Socket to be read over
+ * @return Number of bytes read on success
+ */
 static int recv_string(size_t size, char *buffer, int sockfd) {
 
     size_t bytes_received = 0;
@@ -613,10 +690,14 @@ static int recv_string(size_t size, char *buffer, int sockfd) {
 }
 
 
-
-
+/**
+ * Receives size_t data from a host
+ *
+ * @param sockfd Socket to be read over
+ * @param size Buffer to be read into
+ * @return Number of bytes read on success
+ */
 static int recv_size(int sockfd, size_t *size) {
-
 
     uint32_t message_size = 0;
 
@@ -654,6 +735,13 @@ static int recv_size(int sockfd, size_t *size) {
 
 }
 
+/**
+ * Receives data from a host
+ *
+ * @param sockfd Socket to be read over
+ * @param buffer RPC_data buffer to be read into
+ * @return
+ */
 static int recv_data(int sockfd, rpc_data *buffer) {
     int s;
     // receiving data_1 int
@@ -689,6 +777,15 @@ static int recv_data(int sockfd, rpc_data *buffer) {
     return 1;
 }
 
+
+/**
+ * Receives the void pointed to data from rpc_data from a host
+ *
+ * @param sockfd Socket to be read over
+ * @param size Size of this void pointed to data
+ * @param data Buffer to read data into
+ * @return Number of bytes read on success
+ */
 static int recv_void(int sockfd, size_t size, void *data) {
     size_t bytes_received = 0;
     while(1) {
@@ -711,7 +808,15 @@ static int recv_void(int sockfd, size_t size, void *data) {
     return bytes_received;
 }
 
+/**
+ * Receives an integer from a host
+ *
+ * @param sockfd Socket to be read over
+ * @param num Buffer to store read int
+ * @return Number of bytes read on success
+ */
 static int recv_int(int sockfd, int *num) {
+
     size_t bytes_received = 0;
     size_t int64_size = sizeof(uint64_t);
     uint64_t data;
@@ -745,7 +850,14 @@ static int recv_int(int sockfd, int *num) {
     return bytes_received;
 }
 
-static int recv_type(int sockfd, char *data) {
+/**
+ * Receives a character flag from a host
+ *
+ * @param sockfd Socket to be read over
+ * @param data Buffer to read character
+ * @return Number of bytes read on success
+ */
+static int recv_flag(int sockfd, char *data) {
 
     ssize_t n = recv(sockfd, data, sizeof(*data), 0);
 
@@ -759,7 +871,14 @@ static int recv_type(int sockfd, char *data) {
     return n;
 }
 
-static int send_type(int sockfd, char data) {
+/**
+ * Sends flag character to a host
+ *
+ * @param sockfd Socket to be sent over
+ * @param data Flag to send
+ * @return Number of bytes sent on success
+ */
+static int send_flag(int sockfd, char data) {
 
     ssize_t n = send(sockfd, &data, sizeof(data), 0);
     if (n < 0) {
@@ -771,7 +890,13 @@ static int send_type(int sockfd, char data) {
 }
 
 
-// hash functions
+/**
+ * Hash function for strings written by Daniel J. Bernstein
+ * Was taken from: https://theartincode.stanis.me/008-djb2/
+ *
+ * @param str String to be hashed
+ * @return Hash value
+ */
 static uint32_t hash_djb2(char* str) {
     uint32_t hash = 5381;
     int c;
@@ -781,16 +906,34 @@ static uint32_t hash_djb2(char* str) {
     return hash;
 }
 
+/**
+ * Simply returns the inputted value
+ *
+ * @param num Number to be used as index
+ * @return Inputted number
+ */
 static uint32_t hash_int(uint32_t* num) {
     return *num;
 }
 
+/**
+ * Generates a unique ID that is used as procedure ID's. Uses time and a counter to ensure uniqueness
+ *
+ * @return Generated ID
+ */
 static uint32_t generate_id() {
     static uint32_t counter = 0;
     time_t curr_time = time(NULL);
     return (uint32_t) curr_time + counter++;
 }
 
+/**
+ * Integer comparison function that can be used for the hash table
+ *
+ * @param a First integer
+ * @param b Second integer
+ * @return Value depending on comparison
+ */
 int int_cmp(uint32_t *a, uint32_t *b) {
     if (*a < *b) {
         return -1;
@@ -801,7 +944,47 @@ int int_cmp(uint32_t *a, uint32_t *b) {
     }
 }
 
+/**
+ * Checks if a given character is valid for a procedure name
+ *
+ * @param c Character to be checked
+ * @return Result of check
+ */
+static int is_valid_char(char c) {
+    return (c >= 32 && c <= 126);
+}
 
+/**
+ * Checks if a given name has all valid characters
+ *
+ * @param name Name to be checked
+ * @return Result of check
+ */
+static int is_valid_name(char *name) {
+
+    for (int i = 0; name[i] != '\0'; i++) {
+        // Check if the character is valid
+        if (!is_valid_char(name[i])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/**
+ * Prints an error message given an error code
+ *
+ * @param code Error code
+ */
+static void error_print(enum error_codes code) {
+    fprintf(stderr, "Error: %s\n", error_messages[code]);
+}
+
+/**
+ * Closes client socket and data
+ *
+ * @param cl Client to be closed
+ */
 void rpc_close_client(rpc_client *cl) {
     if (cl) {
         close(cl->sockfd);
@@ -811,10 +994,12 @@ void rpc_close_client(rpc_client *cl) {
 
 }
 
-static void error_print(enum error_codes code) {
-    fprintf(stderr, "Error: %s\n", error_messages[code]);
-}
 
+/**
+ * Frees an RPC data struct
+ *
+ * @param data Data to be freed
+ */
 void rpc_data_free(rpc_data *data) {
     if (data == NULL) {
         return;
@@ -826,18 +1011,5 @@ void rpc_data_free(rpc_data *data) {
     data = NULL;
 }
 
-static int is_valid_char(char c) {
-    return (c >= 32 && c <= 126);
-}
 
-static int is_valid_name(char *name) {
-
-    for (int i = 0; name[i] != '\0'; i++) {
-        // Check if the character is valid
-        if (!is_valid_char(name[i])) {
-            return 0;
-        }
-    }
-    return 1;
-}
 

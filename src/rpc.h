@@ -29,42 +29,79 @@ typedef rpc_data *(*rpc_handler)(rpc_data *);
 /* Server functions */
 /* ---------------- */
 
-/* Initialises server state */
-/* RETURNS: rpc_server* on success, NULL on error */
+/**
+ * Initialises data used for the server and creates listening socket
+ *
+ * @param port Port number
+ * @return Rpc server data
+ */
 rpc_server *rpc_init_server(int port);
 
-/* Registers a function (mapping from name to handler) */
-/* RETURNS: -1 on failure */
+/**
+ * Registers a procedure to the server by name
+ *
+ * @param srv Server struct
+ * @param name Name procedure
+ * @param handler Actual procedure
+ * @return Procedure ID on success
+ */
 int rpc_register(rpc_server *srv, char *name, rpc_handler handler);
 
-/* Start serving requests */
+/**
+ * Accepts new connections from clients and completes requests
+ *
+ * @param srv Server data
+ */
 void rpc_serve_all(rpc_server *srv);
 
 /* ---------------- */
 /* Client functions */
 /* ---------------- */
 
-/* Initialises client state */
-/* RETURNS: rpc_client* on success, NULL on error */
+/**
+ * Initialises data used for the client
+ *
+ * @param addr Address of the server
+ * @param port Port number
+ * @return Rpc client data
+ */
 rpc_client *rpc_init_client(char *addr, int port);
 
-/* Finds a remote function by name */
-/* RETURNS: rpc_handle* on success, NULL on error */
-/* rpc_handle* will be freed with a single call to free(3) */
+/**
+ * Finds a procedure on the server given a name
+ *
+ * @param cl Client data
+ * @param name Query name
+ * @return A handle containing the unique procedure ID upon success, NULL on failure
+ */
 rpc_handle *rpc_find(rpc_client *cl, char *name);
 
-/* Calls remote function using handle */
-/* RETURNS: rpc_data* on success, NULL on error */
+/**
+ * Calls a given procedure from the server given an ID
+ *
+ * @param cl Client data
+ * @param h Handle containing ID
+ * @param payload Data to be send to server
+ * @return Output data from the procedure on success, NULL on failure
+ */
 rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload);
 
-/* Cleans up client state and closes client */
+/**
+ * Closes client socket and data
+ *
+ * @param cl Client to be closed
+ */
 void rpc_close_client(rpc_client *cl);
 
 /* ---------------- */
 /* Shared functions */
 /* ---------------- */
 
-/* Frees a rpc_data struct */
+/**
+ * Frees an RPC data struct
+ *
+ * @param data Data to be freed
+ */
 void rpc_data_free(rpc_data *data);
 
 #endif
