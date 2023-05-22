@@ -15,8 +15,10 @@ $(RPC_SYSTEM): src/rpc.c src/rpc.h
 $(HASH_TABLE): src/hash_table.c src/hash_table.h
 	$(CC) -c -o $@ $< $(CFLAGS) $(LDFLAGS)
 
+
 $(RPC_SYSTEM_A): $(RPC_SYSTEM) $(HASH_TABLE)
 	ar rcs $(RPC_SYSTEM_A) $(RPC_SYSTEM) $(HASH_TABLE) $(LDFLAGS)
+
 
 # removing files
 clean:

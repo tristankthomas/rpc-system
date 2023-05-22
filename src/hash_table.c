@@ -1,5 +1,5 @@
 /*
- * hash_table.c - Contains definitions for a hash table using the djb2 hashing algorithm
+ * hash_table.c - Contains definitions for a hash table using any hashing algorithm
  * Author: Tristan Thomas
  * Date: 17-5-2023
  */
@@ -81,7 +81,7 @@ int insert_data(hash_table_t *table, void *key, void *data, hash_func hash, comp
     } else {
         node_t *current = table->buckets[index];
 
-        while (current->next != NULL) {
+        while (current != NULL) {
             // replace the data
             if (cmp(current->key, key) == 0) {
                 // free replaced data (keeps current key)

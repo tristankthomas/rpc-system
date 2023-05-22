@@ -1,3 +1,9 @@
+/*
+ * rpc.c - Contains the API definitions and algorithms for the RPC system
+ * Author: Tristan Thomas
+ * Date: 1-5-2023
+ */
+
 #include "rpc.h"
 #include "hash_table.h"
 
@@ -14,6 +20,7 @@
 #include <pthread.h>
 
 
+/* redefining htobe64 and be64toh */
 #if defined(htobe64) && !defined(htonll)
     #define htonll(x) htobe64(x)
 #endif
@@ -22,9 +29,11 @@
     #define ntohll(x) be64toh(x)
 #endif
 
+/* constants */
 #define MAX_NAME_LEN 1000
 #define NUM_ERROR_MESSAGES 12
 
+/* flags */
 #define FIND 'f'
 #define CALL 'c'
 #define FOUND 'y'
@@ -49,11 +58,13 @@ struct rpc_handle {
     uint32_t id;
 };
 
+/* used to store both handler and handler id in hash table */
 struct handler_item {
     rpc_handler handler;
     uint32_t id;
 };
 
+/* error handling */
 const char *error_messages[NUM_ERROR_MESSAGES] = {
         "Inconsistent data",
         "Memory allocation failed",
@@ -83,7 +94,6 @@ enum error_codes {
     THREAD,
     INVALID_NAME
 };
-
 
 
 
@@ -266,7 +276,7 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
 
     item->handler= handler;
     item->id = generate_id();
-    // add error handling here
+    // inserts procedure into hash table
     if (insert_data(srv->reg_procedures, name_cpy, (void *) item, (hash_func) hash_djb2, (compare_func) strcmp,
                     (free_func) free, NULL) == -1) {
         free(item);
@@ -334,6 +344,7 @@ static void *handle_connection(void *arg) {
         };
 
         switch(type) {
+            // rpc_find request
             case FIND:
                 // reads function name size
                 if (recv_size(connectfd, &size) == 0
@@ -344,7 +355,7 @@ static void *handle_connection(void *arg) {
                     pthread_exit(NULL);
 
                 }
-
+                // finds procedure given the name
                 struct handler_item *item = (struct handler_item *) get_data(srv->reg_procedures, name, (hash_func) hash_djb2,
                         (compare_func) strcmp);
 
@@ -374,6 +385,7 @@ static void *handle_connection(void *arg) {
                 break;
 
             case CALL:
+                // rpc_call request
                 rpc_data *data = malloc(sizeof(*data));
                 if (!data) {
                     error_print(MEMORY_ALL0CATION);
@@ -396,7 +408,7 @@ static void *handle_connection(void *arg) {
                                                              (compare_func) int_cmp);
 
                 result = handler(data);
-
+                // checks for data consistency
                 if (result == NULL) {
                     if (send_flag(connectfd, INCONSISTENT) == -1) {
                         close(connectfd);
@@ -475,6 +487,7 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
 
     }
 
+    // if data is found
     if (found == FOUND) {
         handle = malloc(sizeof(*handle));
         if (!handle) {
@@ -500,11 +513,13 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
  * @return Output data from the procedure on success, NULL on failure
  */
 rpc_data *rpc_call(rpc_client *cl, rpc_handle *h, rpc_data *payload) {
+
     if (cl == NULL || h == NULL || payload == NULL) {
         error_print(INVALID_ARGUMENTS);
         return NULL;
     }
 
+    // checks for consistent data
     if ((payload->data2 && !payload->data2_len) || (!payload->data2 && payload->data2_len)) {
         error_print(INCONSISTENT_DATA);
         return NULL;
@@ -639,6 +654,8 @@ static int send_size(size_t size, int sockfd) {
  * @return
  */
 static int send_int(int sockfd, int data) {
+
+    // checks that the data is within the storage bounds
     if (data <= INT64_MIN || data >= INT64_MAX) {
         error_print(OVERLENGTH);
         return -1;
@@ -743,6 +760,7 @@ static int recv_size(int sockfd, size_t *size) {
  * @return
  */
 static int recv_data(int sockfd, rpc_data *buffer) {
+
     int s;
     // receiving data_1 int
     s = recv_int(sockfd, &buffer->data1);
@@ -787,6 +805,7 @@ static int recv_data(int sockfd, rpc_data *buffer) {
  * @return Number of bytes read on success
  */
 static int recv_void(int sockfd, size_t size, void *data) {
+
     size_t bytes_received = 0;
     while(1) {
         ssize_t n = recv(sockfd, data + bytes_received, size - bytes_received, 0);
@@ -898,6 +917,7 @@ static int send_flag(int sockfd, char data) {
  * @return Hash value
  */
 static uint32_t hash_djb2(char* str) {
+
     uint32_t hash = 5381;
     int c;
     while ((c = *str++)) {
@@ -913,6 +933,7 @@ static uint32_t hash_djb2(char* str) {
  * @return Inputted number
  */
 static uint32_t hash_int(uint32_t* num) {
+
     return *num;
 }
 
@@ -922,6 +943,7 @@ static uint32_t hash_int(uint32_t* num) {
  * @return Generated ID
  */
 static uint32_t generate_id() {
+
     static uint32_t counter = 0;
     time_t curr_time = time(NULL);
     return (uint32_t) curr_time + counter++;
@@ -935,6 +957,7 @@ static uint32_t generate_id() {
  * @return Value depending on comparison
  */
 int int_cmp(uint32_t *a, uint32_t *b) {
+
     if (*a < *b) {
         return -1;
     } else if (*a > *b) {
@@ -951,6 +974,7 @@ int int_cmp(uint32_t *a, uint32_t *b) {
  * @return Result of check
  */
 static int is_valid_char(char c) {
+
     return (c >= 32 && c <= 126);
 }
 
@@ -977,6 +1001,7 @@ static int is_valid_name(char *name) {
  * @param code Error code
  */
 static void error_print(enum error_codes code) {
+
     fprintf(stderr, "Error: %s\n", error_messages[code]);
 }
 
@@ -986,6 +1011,7 @@ static void error_print(enum error_codes code) {
  * @param cl Client to be closed
  */
 void rpc_close_client(rpc_client *cl) {
+
     if (cl) {
         close(cl->sockfd);
         free(cl);

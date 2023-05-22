@@ -1,5 +1,8 @@
-/* Header for RPC system */
-/* Please do not modify this file */
+/*
+ * rpc.c - Contains the API for the RPC system
+ * Author: Tristan Thomas
+ * Date: 1-5-2023
+ */
 
 #ifndef RPC_H
 #define RPC_H
