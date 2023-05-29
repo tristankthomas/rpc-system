@@ -81,7 +81,7 @@ const char *error_messages[NUM_ERROR_MESSAGES] = {
 };
 
 enum error_codes {
-    INCONSISTENT_DATA = 1,
+    INCONSISTENT_DATA = 0,
     MEMORY_ALL0CATION,
     INVALID_ARGUMENTS,
     HANDLER_NOT_FOUND,
