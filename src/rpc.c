@@ -163,27 +163,17 @@ rpc_server *rpc_init_server(int port) {
         }
     }
 
-    if (listenfd < 0) {
+
+    if (listenfd < 0
+        || setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0
+        // binds an address and the port number to listen socket
+        || bind(listenfd, res->ai_addr, res->ai_addrlen) < 0
+        // the listen socket can now add available connections to a queue of 5
+        || listen(listenfd, 5) < 0) {
+
         error_print(SOCKET_CREATION);
         return NULL;
-    }
 
-
-    if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
-        error_print(SOCKET_CREATION);
-        return NULL;
-    }
-
-    // bind
-    if (bind(listenfd, res->ai_addr, res->ai_addrlen) < 0) {
-        error_print(SOCKET_CREATION);
-        return NULL;
-    }
-
-    // listen (blocking)
-    if (listen(listenfd, 5) < 0) {
-        error_print(SOCKET_CREATION);
-        return NULL;
     }
 
 
@@ -260,6 +250,7 @@ rpc_client *rpc_init_client(char *addr, int port) {
  * @return Procedure ID on success
  */
 int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
+
     if (srv == NULL || name == NULL || handler == NULL) {
         error_print(INVALID_ARGUMENTS);
         return -1;
@@ -295,6 +286,7 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
  * @param srv Server data
  */
 void rpc_serve_all(rpc_server *srv) {
+
     if (srv == NULL) {
         error_print(INVALID_ARGUMENTS);
         exit(EXIT_FAILURE);
@@ -327,6 +319,7 @@ void rpc_serve_all(rpc_server *srv) {
  * @return NULL on exit thread
  */
 static void *handle_connection(void *arg) {
+
     // Retrieve the connection file descriptor from the argument
     rpc_server *srv = (rpc_server *) arg;
     int connectfd = srv->connectfd;
@@ -647,6 +640,7 @@ static int send_size(size_t size, int sockfd) {
     return n;
 }
 
+
 /**
  *
  * @param sockfd
@@ -717,7 +711,6 @@ static int recv_string(size_t size, char *buffer, int sockfd) {
 static int recv_size(int sockfd, size_t *size) {
 
     uint32_t message_size = 0;
-
     size_t bytes_received = 0;
     size_t s_size = sizeof(uint32_t);
     uint32_t host_size;
@@ -1027,6 +1020,7 @@ void rpc_close_client(rpc_client *cl) {
  * @param data Data to be freed
  */
 void rpc_data_free(rpc_data *data) {
+
     if (data == NULL) {
         return;
     }

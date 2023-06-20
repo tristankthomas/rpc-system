@@ -30,6 +30,7 @@ static node_t *create_node(void *key, void *data);
  * @return Newly created hash table
  */
 hash_table_t *create_empty_table() {
+
     hash_table_t *table = malloc(sizeof(*table));
     assert(table);
     table->num_items = 0;
