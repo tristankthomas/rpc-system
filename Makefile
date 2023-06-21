@@ -7,8 +7,6 @@ HASH_TABLE=hash_table.o
 SERVER=rpc-server
 CLIENT=rpc-client
 
-.PHONY: format all
-
 all: $(RPC_SYSTEM_A) $(CLIENT) $(SERVER)
 
 $(RPC_SYSTEM): src/rpc.c src/rpc.h
@@ -33,6 +31,4 @@ $(CLIENT): rpc-client.c $(RPC_SYSTEM_A)
 clean:
 	rm -f $(RPC_SYSTEM) $(HASH_TABLE) $(RPC_SYSTEM_A) $(CLIENT) $(SERVER)
 
-format:
-	clang-format -style=file -i *.c *.h
 

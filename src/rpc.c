@@ -189,6 +189,7 @@ rpc_server *rpc_init_server(int port) {
     return server;
 }
 
+
 /**
  * Initialises data used for the client
  *
@@ -241,6 +242,7 @@ rpc_client *rpc_init_client(char *addr, int port) {
     return client;
 }
 
+
 /**
  * Registers a procedure to the server by name
  *
@@ -280,6 +282,7 @@ int rpc_register(rpc_server *srv, char *name, rpc_handler handler) {
 
 }
 
+
 /**
  * Accepts new connections from clients and completes requests
  *
@@ -311,6 +314,7 @@ void rpc_serve_all(rpc_server *srv) {
         }
     }
 }
+
 
 /**
  * Handles rpc_find and call requests from a specific client
@@ -445,8 +449,6 @@ static void *handle_connection(void *arg) {
 }
 
 
-
-
 /**
  * Finds a procedure on the server given a name
  *
@@ -496,6 +498,7 @@ rpc_handle *rpc_find(rpc_client *cl, char *name) {
 
     return handle;
 }
+
 
 /**
  * Calls a given procedure from the server given an ID
@@ -576,6 +579,7 @@ static int send_data(int sockfd, rpc_data *data) {
 
 }
 
+
 /**
  * Sends the void data to a host
  *
@@ -596,6 +600,7 @@ static int send_void(int sockfd, size_t size, void *data) {
 
 }
 
+
 /**
  * Sends a string over the network
  *
@@ -614,6 +619,7 @@ static int send_string(char *message, int sockfd) {
 
     return n;
 }
+
 
 /**
  * Sends size_t data to a host
@@ -663,7 +669,6 @@ static int send_int(int sockfd, int data) {
 
     return n;
 }
-
 
 
 /**
@@ -745,6 +750,7 @@ static int recv_size(int sockfd, size_t *size) {
 
 }
 
+
 /**
  * Receives data from a host
  *
@@ -820,6 +826,7 @@ static int recv_void(int sockfd, size_t size, void *data) {
     return bytes_received;
 }
 
+
 /**
  * Receives an integer from a host
  *
@@ -862,6 +869,7 @@ static int recv_int(int sockfd, int *num) {
     return bytes_received;
 }
 
+
 /**
  * Receives a character flag from a host
  *
@@ -882,6 +890,7 @@ static int recv_flag(int sockfd, char *data) {
 
     return n;
 }
+
 
 /**
  * Sends flag character to a host
@@ -919,6 +928,7 @@ static uint32_t hash_djb2(char* str) {
     return hash;
 }
 
+
 /**
  * Simply returns the inputted value
  *
@@ -929,6 +939,7 @@ static uint32_t hash_int(uint32_t* num) {
 
     return *num;
 }
+
 
 /**
  * Generates a unique ID that is used as procedure ID's. Uses time and a counter to ensure uniqueness
@@ -941,6 +952,7 @@ static uint32_t generate_id() {
     time_t curr_time = time(NULL);
     return (uint32_t) curr_time + counter++;
 }
+
 
 /**
  * Integer comparison function that can be used for the hash table
@@ -960,6 +972,7 @@ int int_cmp(uint32_t *a, uint32_t *b) {
     }
 }
 
+
 /**
  * Checks if a given character is valid for a procedure name
  *
@@ -970,6 +983,7 @@ static int is_valid_char(char c) {
 
     return (c >= 32 && c <= 126);
 }
+
 
 /**
  * Checks if a given name has all valid characters
@@ -988,6 +1002,7 @@ static int is_valid_name(char *name) {
     return 1;
 }
 
+
 /**
  * Prints an error message given an error code
  *
@@ -997,6 +1012,7 @@ static void error_print(enum error_codes code) {
 
     fprintf(stderr, "Error: %s\n", error_messages[code]);
 }
+
 
 /**
  * Closes client socket and data
