@@ -645,7 +645,7 @@ static int send_size(size_t size, int sockfd) {
  *
  * @param sockfd
  * @param data
- * @return
+ * @return Number of bytes sent on success
  */
 static int send_int(int sockfd, int data) {
 

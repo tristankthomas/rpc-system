@@ -18,7 +18,7 @@ Once compiled, the server can first be executed in the foreground by:
 ```
 ./rpc-server -p <port> &
 ```
-Next clients can be ran by:
+Next, clients can be ran by:
 ```
 ./rpc-client -i <ip-address> -p <port>
 ```
